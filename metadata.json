@@ -1,0 +1,5 @@
+{
+  "name": "NYSC Weekly Report Portal",
+  "description": "A specialized reporting portal for NYSC Secretariats to collect, manage, and export weekly status reports on Corps Members (Absconded, Sick, Kidnapped, Missing, Deceased) for NDHQ submission.",
+  "requestFramePermissions": []
+}
