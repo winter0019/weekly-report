@@ -11,29 +11,27 @@ import {
   DauraLga,
   UserRole
 } from './types';
-import { PlusIcon, DownloadIcon, ShareIcon, LogOutIcon, TrashIcon, FileTextIcon } from './components/Icons';
+import { 
+  PlusIcon, 
+  DownloadIcon, 
+  ShareIcon, 
+  LogOutIcon, 
+  TrashIcon, 
+  FileTextIcon, 
+  SearchIcon,
+  AbscondedIcon,
+  SickIcon,
+  KidnappedIcon,
+  MissingIcon,
+  DeceasedIcon,
+  DashboardIcon
+} from './components/Icons';
 import { summarizeReport } from './services/geminiService';
 
 const DAURA_ZONE_LGAS: DauraLga[] = [
   'Daura', 'Baure', 'Zango', 'Sandamu', 'Mai’Adua', 'Mashi', 'Dutsi', 'Mani', 'Bindawa'
 ];
 
-/**
- * OFFICIAL DEFAULT SECURITY PINS
- * -----------------------------
- * Zonal Inspector (ZI): 0000
- * 
- * Local Government Inspectors (LGIs):
- * 1. Daura    : 1111
- * 2. Baure    : 2222
- * 3. Zango    : 3333
- * 4. Sandamu  : 4444
- * 5. Mai’Adua : 5555
- * 6. Mashi    : 6666
- * 7. Dutsi    : 7777
- * 8. Mani     : 8888
- * 9. Bindawa  : 9999
- */
 const SECURITY_PINS: Record<string, string> = {
   'ZI': '0000',
   'Daura': '1111',
@@ -45,6 +43,14 @@ const SECURITY_PINS: Record<string, string> = {
   'Dutsi': '7777',
   'Mani': '8888',
   'Bindawa': '9999',
+};
+
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  [ReportCategory.ABSCONDED]: <AbscondedIcon />,
+  [ReportCategory.SICK]: <SickIcon />,
+  [ReportCategory.KIDNAPPED]: <KidnappedIcon />,
+  [ReportCategory.MISSING]: <MissingIcon />,
+  [ReportCategory.DECEASED]: <DeceasedIcon />,
 };
 
 const App: React.FC = () => {
@@ -77,6 +83,7 @@ const App: React.FC = () => {
   });
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [ziViewLga, setZiViewLga] = useState<DauraLga | 'OVERVIEW'>('OVERVIEW');
 
@@ -222,11 +229,17 @@ const App: React.FC = () => {
   const filteredEntries = useMemo(() => {
     const currentLga = userRole === 'LGI' ? lgaContext : ziViewLga;
     if (activeCategory === 'LGA_OVERVIEW') return [];
-    return entries.filter(e => 
-      (currentLga === 'OVERVIEW' || e.lga === currentLga) && 
-      e.category === activeCategory
-    );
-  }, [entries, userRole, lgaContext, ziViewLga, activeCategory]);
+    
+    return entries.filter(e => {
+      const matchesLga = currentLga === 'OVERVIEW' || e.lga === currentLga;
+      const matchesCategory = e.category === activeCategory;
+      const matchesSearch = searchQuery === '' || 
+        e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      return matchesLga && matchesCategory && matchesSearch;
+    });
+  }, [entries, userRole, lgaContext, ziViewLga, activeCategory, searchQuery]);
 
   const lgaRecentEntries = useMemo(() => {
     if (userRole !== 'LGI' || !lgaContext) return [];
@@ -372,13 +385,6 @@ const App: React.FC = () => {
                       Authenticate Session
                     </button>
                   </form>
-
-                  <div className="pt-8">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-relaxed">
-                      LGA Default PINs: 1111, 2222, 3333... in order.<br/>
-                      ZI Default PIN: 0000.
-                    </p>
-                  </div>
                 </div>
               </div>
             )}
@@ -441,13 +447,13 @@ const App: React.FC = () => {
                 setZiViewLga('OVERVIEW');
                 setActiveCategory(ReportCategory.ABSCONDED);
               }}
-              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all ${
+              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
                 ziViewLga === 'OVERVIEW' 
                   ? 'bg-indigo-100 text-indigo-900 ring-2 ring-indigo-200 shadow-sm' 
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              📊 Zonal Overview
+              <DashboardIcon /> 📊 Zonal Overview
             </button>
             <div className="h-6 w-px bg-slate-200 mx-2" />
             {DAURA_ZONE_LGAS.map(lga => (
@@ -469,47 +475,59 @@ const App: React.FC = () => {
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-2 space-y-1 overflow-hidden">
-            <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-5 py-4">Navigation</h2>
+          <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 p-3 space-y-1 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 mb-2 flex items-center justify-between">
+              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Navigation</h2>
+            </div>
             
             {userRole === 'LGI' && (
               <button
                 onClick={() => setActiveCategory('LGA_OVERVIEW')}
-                className={`w-full text-left px-5 py-4 rounded-2xl transition-all flex items-center gap-3 font-black group ${
+                className={`w-full text-left px-5 py-4 rounded-2xl transition-all flex items-center gap-4 font-black group mb-2 ${
                   activeCategory === 'LGA_OVERVIEW' 
-                    ? 'bg-green-700 text-white shadow-lg shadow-green-100' 
+                    ? 'bg-green-700 text-white shadow-lg' 
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <div className={`w-2 h-2 rounded-full ${activeCategory === 'LGA_OVERVIEW' ? 'bg-white' : 'bg-green-600'}`} />
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${activeCategory === 'LGA_OVERVIEW' ? 'bg-white/20 text-white' : 'bg-green-600/10 text-green-700'}`}>
+                  <DashboardIcon />
+                </div>
                 <span>Command Center</span>
               </button>
             )}
 
-            <div className="h-px bg-slate-100 my-2 mx-5" />
-            <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-5 py-2">Categories</h2>
-
-            {Object.values(ReportCategory).map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`w-full text-left px-5 py-3.5 rounded-2xl transition-all flex items-center justify-between group ${
-                  activeCategory === cat 
-                    ? userRole === 'ZI' ? 'bg-indigo-50 text-indigo-900 font-black' : 'bg-green-50 text-green-900 font-black' 
-                    : 'text-slate-700 hover:bg-slate-50 font-bold'
-                }`}
-              >
-                <span className="truncate text-sm">{cat}</span>
-                <span className={`text-[10px] px-3 py-1.5 rounded-lg font-black min-w-[34px] text-center ${
-                  activeCategory === cat ? 'bg-white shadow-sm' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {entries.filter(e => 
-                    (userRole === 'LGI' ? e.lga === lgaContext : (ziViewLga === 'OVERVIEW' || e.lga === ziViewLga)) && 
-                    e.category === cat
-                  ).length}
-                </span>
-              </button>
-            ))}
+            <div className="space-y-1">
+              {Object.values(ReportCategory).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`w-full text-left px-5 py-4 rounded-2xl transition-all flex items-center justify-between group ${
+                    activeCategory === cat 
+                      ? 'bg-green-50 text-green-900 border border-green-100' 
+                      : 'text-slate-700 hover:bg-slate-50 border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-4 truncate">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
+                      activeCategory === cat 
+                        ? 'bg-green-700 text-white shadow-md' 
+                        : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+                    }`}>
+                      {CATEGORY_ICONS[cat]}
+                    </div>
+                    <span className={`truncate text-sm font-bold ${activeCategory === cat ? 'font-black' : ''}`}>{cat}</span>
+                  </div>
+                  <span className={`text-[10px] px-2.5 py-1.5 rounded-lg font-black min-w-[34px] text-center ${
+                    activeCategory === cat ? 'bg-white text-green-900 shadow-sm ring-1 ring-green-100' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {entries.filter(e => 
+                      (userRole === 'LGI' ? e.lga === lgaContext : (ziViewLga === 'OVERVIEW' || e.lga === ziViewLga)) && 
+                      e.category === cat
+                    ).length}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className={`p-8 rounded-[2rem] shadow-2xl space-y-5 border relative overflow-hidden text-white ${userRole === 'ZI' ? 'bg-indigo-900 border-indigo-700' : 'bg-green-800 border-green-700'}`}>
@@ -545,29 +563,49 @@ const App: React.FC = () => {
           {userRole === 'ZI' && ziViewLga === 'OVERVIEW' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-700">
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                  <p className="text-[11px] font-black text-red-700 uppercase tracking-widest">Absconded</p>
-                  <p className="text-4xl font-black text-slate-900 mt-2">
-                    {entries.filter(e => e.category === ReportCategory.ABSCONDED).length}
-                  </p>
+                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center shadow-inner">
+                    <AbscondedIcon />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black text-red-700 uppercase tracking-widest leading-none mb-1">Absconded</p>
+                    <p className="text-3xl font-black text-slate-900 leading-none">
+                      {entries.filter(e => e.category === ReportCategory.ABSCONDED).length}
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                  <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest">Medical</p>
-                  <p className="text-4xl font-black text-slate-900 mt-2">
-                    {entries.filter(e => e.category === ReportCategory.SICK).length}
-                  </p>
+                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-inner">
+                    <SickIcon />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest leading-none mb-1">Medical</p>
+                    <p className="text-3xl font-black text-slate-900 leading-none">
+                      {entries.filter(e => e.category === ReportCategory.SICK).length}
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                  <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest">Incidents</p>
-                  <p className="text-4xl font-black text-slate-900 mt-2">
-                    {entries.filter(e => e.category === ReportCategory.MISSING || e.category === ReportCategory.KIDNAPPED).length}
-                  </p>
+                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shadow-inner">
+                    <KidnappedIcon />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest leading-none mb-1">Incidents</p>
+                    <p className="text-3xl font-black text-slate-900 leading-none">
+                      {entries.filter(e => e.category === ReportCategory.MISSING || e.category === ReportCategory.KIDNAPPED).length}
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm">
-                  <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest">Deceased</p>
-                  <p className="text-4xl font-black text-slate-900 mt-2">
-                    {entries.filter(e => e.category === ReportCategory.DECEASED).length}
-                  </p>
+                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shadow-inner">
+                    <DeceasedIcon />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest leading-none mb-1">Deceased</p>
+                    <p className="text-3xl font-black text-slate-900 leading-none">
+                      {entries.filter(e => e.category === ReportCategory.DECEASED).length}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -647,10 +685,15 @@ const App: React.FC = () => {
                         <button 
                           key={cat}
                           onClick={() => setActiveCategory(cat)}
-                          className="bg-green-800/80 hover:bg-green-700 border-2 border-green-700/50 p-6 rounded-3xl transition-all text-left flex flex-col justify-between h-36 group shadow-lg"
+                          className="bg-green-800/80 hover:bg-green-700 border-2 border-green-700/50 p-6 rounded-3xl transition-all text-left flex flex-col justify-between h-40 group shadow-lg"
                         >
-                          <span className="text-[10px] font-black uppercase opacity-70 group-hover:opacity-100 leading-tight">{cat}</span>
-                          <span className="text-4xl font-black">{count}</span>
+                          <div className="w-10 h-10 rounded-2xl bg-white/10 text-white flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                            {CATEGORY_ICONS[cat]}
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black uppercase opacity-70 group-hover:opacity-100 leading-tight block mb-1">{cat}</span>
+                            <span className="text-4xl font-black">{count}</span>
+                          </div>
                         </button>
                       );
                     })}
@@ -670,8 +713,8 @@ const App: React.FC = () => {
                       return (
                         <div key={cat} className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border-2 border-slate-100">
                           <div className="flex items-center gap-5">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-md ${hasRecords ? 'bg-green-600 text-white' : 'bg-slate-300 text-slate-500'}`}>
-                              {hasRecords ? '✓' : '!'}
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-md ${hasRecords ? 'bg-green-600 text-white' : 'bg-slate-300 text-slate-500'}`}>
+                              {CATEGORY_ICONS[cat]}
                             </div>
                             <span className={`text-base font-black ${hasRecords ? 'text-slate-900' : 'text-slate-400 italic'}`}>{cat}</span>
                           </div>
@@ -700,9 +743,14 @@ const App: React.FC = () => {
                       <div className="space-y-3">
                         {lgaRecentEntries.map(entry => (
                           <div key={entry.id} className="p-5 rounded-2xl hover:bg-slate-50 transition-colors flex items-center justify-between border-2 border-transparent hover:border-slate-100 bg-slate-50/30 shadow-sm">
-                            <div>
-                              <p className="font-black text-slate-900 uppercase text-sm tracking-tight">{entry.name}</p>
-                              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">{entry.category} • {entry.stateCode}</p>
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-green-100 text-green-700">
+                                {CATEGORY_ICONS[entry.category]}
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-900 uppercase text-sm tracking-tight leading-none">{entry.name}</p>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">{entry.category} • {entry.stateCode}</p>
+                              </div>
                             </div>
                             <button onClick={() => removeEntry(entry.id)} className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
                               <TrashIcon />
@@ -720,12 +768,17 @@ const App: React.FC = () => {
           {activeCategory !== 'LGA_OVERVIEW' && (
             <div className="space-y-6 animate-in zoom-in-95 duration-500">
                <div className="bg-white rounded-[2rem] shadow-xl border-2 border-slate-100 overflow-hidden">
-                <div className={`px-10 py-8 border-b-2 flex items-center justify-between ${userRole === 'ZI' ? 'bg-indigo-50 border-indigo-100' : 'bg-green-50 border-green-100'}`}>
-                  <div>
-                    <h2 className="text-2xl font-black text-slate-900 flex items-center gap-4">
-                      <PlusIcon /> Submit Weekly Record
-                    </h2>
-                    <p className="text-sm font-black text-slate-600 mt-1 uppercase tracking-widest">{activeCategory} • {userRole === 'LGI' ? lgaContext : ziViewLga} LGA</p>
+                <div className={`px-10 py-8 border-b-2 flex flex-col sm:flex-row sm:items-center justify-between gap-6 ${userRole === 'ZI' ? 'bg-indigo-50 border-indigo-100' : 'bg-green-50 border-green-100'}`}>
+                  <div className="flex items-center gap-6">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${userRole === 'ZI' ? 'bg-indigo-700' : 'bg-green-700'}`}>
+                      {CATEGORY_ICONS[activeCategory]}
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black text-slate-900 flex items-center gap-4">
+                        Submit Weekly Record
+                      </h2>
+                      <p className="text-sm font-black text-slate-600 mt-1 uppercase tracking-widest">{activeCategory} • {userRole === 'LGI' ? lgaContext : ziViewLga} LGA</p>
+                    </div>
                   </div>
                   <button 
                     onClick={() => userRole === 'LGI' ? setActiveCategory('LGA_OVERVIEW') : setZiViewLga('OVERVIEW')}
@@ -736,19 +789,25 @@ const App: React.FC = () => {
                 </div>
                 <form onSubmit={handleAddEntry} className="p-10">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    {/* Category Dropdown */}
+                    {/* Category Selection Dropdown */}
                     <div className="space-y-4 md:col-span-2">
-                      <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Report Category (Select Type)</label>
-                      <select 
-                        value={activeCategory}
-                        onChange={(e) => setActiveCategory(e.target.value as ReportCategory)}
-                        className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all cursor-pointer appearance-none shadow-sm"
-                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23334155'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.5rem center', backgroundSize: '1.5rem' }}
-                      >
-                        {Object.values(ReportCategory).map(cat => (
-                          <option key={cat} value={cat} className="font-bold py-2">{cat.toUpperCase()}</option>
-                        ))}
-                      </select>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Report Type (Dropdown)</label>
+                      </div>
+                      <div className="relative">
+                        <select 
+                          value={activeCategory}
+                          onChange={(e) => setActiveCategory(e.target.value as ReportCategory)}
+                          className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all cursor-pointer appearance-none shadow-sm"
+                        >
+                          {Object.values(ReportCategory).map(cat => (
+                            <option key={cat} value={cat}>{cat.toUpperCase()}</option>
+                          ))}
+                        </select>
+                        <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-4">
@@ -825,8 +884,27 @@ const App: React.FC = () => {
               </div>
 
               <div className="bg-white rounded-[2rem] shadow-lg border-2 border-slate-100 overflow-hidden">
-                <div className="px-10 py-6 border-b-2 border-slate-50 flex items-center justify-between bg-slate-50/50">
-                  <h2 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Entry History For {activeCategory}</h2>
+                <div className="px-10 py-8 border-b-2 border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50/50">
+                  <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-widest flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white ${userRole === 'ZI' ? 'bg-indigo-700' : 'bg-green-700'}`}>
+                      {CATEGORY_ICONS[activeCategory]}
+                    </div>
+                    Entry History For {activeCategory}
+                  </h2>
+                  
+                  {/* Search Bar */}
+                  <div className="relative max-w-sm w-full">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                      <SearchIcon />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search Name or Code..."
+                      className="w-full border-2 border-slate-200 bg-white rounded-2xl pl-12 pr-6 py-3.5 text-sm font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 uppercase tracking-tight"
+                    />
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
@@ -839,11 +917,31 @@ const App: React.FC = () => {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredEntries.length === 0 ? (
-                        <tr><td colSpan={3} className="px-10 py-28 text-center text-slate-400 font-black italic text-lg">No records found for {activeCategory} this week.</td></tr>
+                        <tr>
+                          <td colSpan={3} className="px-10 py-28 text-center">
+                            <p className="text-slate-400 font-black italic text-lg">
+                              {searchQuery ? `No matches found for "${searchQuery}"` : `No records found for ${activeCategory} this week.`}
+                            </p>
+                            {searchQuery && (
+                              <button 
+                                onClick={() => setSearchQuery('')}
+                                className="mt-4 text-xs font-black text-green-700 hover:text-green-900 uppercase tracking-widest"
+                              >
+                                Clear Search Filter
+                              </button>
+                            )}
+                          </td>
+                        </tr>
                       ) : (
                         filteredEntries.map((entry) => (
                           <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
-                            <td className="px-10 py-7 font-black text-slate-900 uppercase tracking-tight text-base">{entry.name}</td>
+                            <td className="px-10 py-7 font-black text-slate-900 uppercase tracking-tight text-base">
+                              <div className="flex items-center gap-4">
+                                <span className={`w-2 h-2 rounded-full ${userRole === 'ZI' ? 'bg-indigo-600' : 'bg-green-600'}`} />
+                                {entry.name}
+                              </div>
+                              <p className="text-[10px] text-slate-400 font-bold block md:hidden ml-6">{entry.stateCode}</p>
+                            </td>
                             <td className="px-10 py-7 text-slate-600 font-mono text-sm font-bold">{entry.stateCode}</td>
                             <td className="px-10 py-7 text-right">
                               <button onClick={() => removeEntry(entry.id)} className="p-4 text-slate-300 hover:text-red-700 rounded-2xl hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100 shadow-sm border border-transparent hover:border-red-100"><TrashIcon /></button>
