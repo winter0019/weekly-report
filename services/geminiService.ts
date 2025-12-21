@@ -3,8 +3,10 @@ import { GoogleGenAI } from "@google/genai";
 import { CorpsMemberEntry, ReportCategory, DauraLga } from "../types";
 
 export async function summarizeReport(entries: CorpsMemberEntry[], zoneName: string): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Always use the standard initialization with the provided process.env.API_KEY.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
+  // Removed duplicate 'Mani' from the list.
   const lgas: DauraLga[] = ['Daura', 'Baure', 'Zango', 'Sandamu', 'Mai’Adua', 'Mashi', 'Dutsi', 'Mani', 'Bindawa'];
   
   let dataSummary = `AGGREGATED ZONAL DATA FOR ${zoneName.toUpperCase()}\n\n`;
@@ -37,10 +39,12 @@ export async function summarizeReport(entries: CorpsMemberEntry[], zoneName: str
   `;
 
   try {
+    // Calling generateContent with the correct model and prompt.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Accessing the text property directly on the response object.
     return response.text || "Report compilation failed.";
   } catch (err: any) {
     console.error("Gemini Error:", err);
