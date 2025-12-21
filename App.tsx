@@ -45,6 +45,14 @@ const SECURITY_PINS: Record<string, string> = {
   'Bindawa': '9999',
 };
 
+const CATEGORY_COLORS: Record<string, string> = {
+  [ReportCategory.ABSCONDED]: 'bg-amber-100 text-amber-700 border-amber-200',
+  [ReportCategory.SICK]: 'bg-blue-100 text-blue-700 border-blue-200',
+  [ReportCategory.KIDNAPPED]: 'bg-orange-100 text-orange-700 border-orange-200',
+  [ReportCategory.MISSING]: 'bg-purple-100 text-purple-700 border-purple-200',
+  [ReportCategory.DECEASED]: 'bg-red-100 text-red-700 border-red-200',
+};
+
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   [ReportCategory.ABSCONDED]: <AbscondedIcon />,
   [ReportCategory.SICK]: <SickIcon />,
@@ -53,964 +61,398 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   [ReportCategory.DECEASED]: <DeceasedIcon />,
 };
 
+type ViewMode = 'DASHBOARD' | 'FORM' | 'LGA_OVERSIGHT';
+
 const App: React.FC = () => {
-  const [userRole, setUserRole] = useState<UserRole | null>(() => {
-    const saved = localStorage.getItem('daura_user_role');
-    return (saved as UserRole) || null;
-  });
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('daura_authenticated') === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => localStorage.getItem('daura_auth') === 'true');
+  const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
+  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => localStorage.getItem('daura_lga') as DauraLga);
   const [entries, setEntries] = useState<CorpsMemberEntry[]>(() => {
-    const saved = localStorage.getItem('daura_zone_entries');
+    const saved = localStorage.getItem('daura_data');
     return saved ? JSON.parse(saved) : [];
   });
-  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => {
-    const saved = localStorage.getItem('daura_lga_context');
-    return (saved as DauraLga) || null;
-  });
 
-  // Authentication Flow States
+  const [currentView, setCurrentView] = useState<ViewMode>('DASHBOARD');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  
+  // Auth Form States
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
   const [pendingLga, setPendingLga] = useState<DauraLga | null>(null);
-  const [pinInput, setPinInput] = useState('');
-  const [loginError, setLoginError] = useState(false);
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(false);
 
-  const [zoneName, setZoneName] = useState('Daura Zone Secretariat');
-  const [activeCategory, setActiveCategory] = useState<ReportCategory | 'LGA_OVERVIEW'>(() => {
-    const savedRole = localStorage.getItem('daura_user_role');
-    return savedRole === 'LGI' ? 'LGA_OVERVIEW' : ReportCategory.ABSCONDED;
-  });
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-  const [summary, setSummary] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  const [ziViewLga, setZiViewLga] = useState<DauraLga | 'OVERVIEW'>('OVERVIEW');
-
-  // Form states
-  const [name, setName] = useState('');
-  const [stateCode, setStateCode] = useState('');
-  const [extraField1, setExtraField1] = useState(''); 
-  const [extraField2, setExtraField2] = useState(''); 
-  const [isHospitalized, setIsHospitalized] = useState(false);
+  // Submission Form State
+  const [selectedCat, setSelectedCat] = useState<ReportCategory>(ReportCategory.ABSCONDED);
+  const [formData, setFormData] = useState({ name: '', code: '', detail1: '', detail2: '', hosp: false });
 
   useEffect(() => {
-    localStorage.setItem('daura_zone_entries', JSON.stringify(entries));
+    localStorage.setItem('daura_data', JSON.stringify(entries));
   }, [entries]);
-
-  useEffect(() => {
-    if (userRole) {
-      localStorage.setItem('daura_user_role', userRole);
-    } else {
-      localStorage.removeItem('daura_user_role');
-    }
-    
-    if (lgaContext) {
-      localStorage.setItem('daura_lga_context', lgaContext);
-    } else {
-      localStorage.removeItem('daura_lga_context');
-    }
-    
-    localStorage.setItem('daura_authenticated', isAuthenticated.toString());
-  }, [userRole, lgaContext, isAuthenticated]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const targetKey = pendingRole === 'ZI' ? 'ZI' : (pendingLga || '');
-    const correctPin = SECURITY_PINS[targetKey];
-
-    if (pinInput === correctPin) {
+    const target = pendingRole === 'ZI' ? 'ZI' : pendingLga;
+    if (pin === SECURITY_PINS[target!]) {
+      setIsAuthenticated(true);
       setUserRole(pendingRole);
       setLgaContext(pendingLga);
-      setIsAuthenticated(true);
-      setActiveCategory(pendingRole === 'LGI' ? 'LGA_OVERVIEW' : ReportCategory.ABSCONDED);
-      setLoginError(false);
-      setPinInput('');
+      localStorage.setItem('daura_auth', 'true');
+      localStorage.setItem('daura_role', pendingRole!);
+      if (pendingLga) localStorage.setItem('daura_lga', pendingLga);
     } else {
-      setLoginError(true);
-      setPinInput('');
-      if (window.navigator.vibrate) window.navigator.vibrate(200);
+      setError(true);
     }
   };
 
-  const handleAddEntry = (e: React.FormEvent) => {
+  const submitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    const effectiveLga = userRole === 'LGI' ? lgaContext : (ziViewLga !== 'OVERVIEW' ? ziViewLga : null);
-    
-    if (!name || !stateCode || !effectiveLga || activeCategory === 'LGA_OVERVIEW') {
-      alert("Please ensure Name, State Code, and Category are specified.");
-      return;
-    }
-
-    const base = {
+    const newEntry: any = {
       id: Math.random().toString(36).substr(2, 9),
-      name,
-      stateCode,
+      name: formData.name.toUpperCase(),
+      stateCode: formData.code.toUpperCase(),
       dateAdded: new Date().toISOString(),
-      lga: effectiveLga as DauraLga,
+      lga: lgaContext || 'Daura',
+      category: selectedCat,
     };
 
-    let newEntry: CorpsMemberEntry;
-
-    switch (activeCategory) {
-      case ReportCategory.ABSCONDED:
-        newEntry = { ...base, category: ReportCategory.ABSCONDED, period: extraField1 } as AbscondedMember;
-        break;
-      case ReportCategory.SICK:
-        newEntry = { ...base, category: ReportCategory.SICK, illness: extraField1, hospitalized: isHospitalized } as SickMember;
-        break;
-      case ReportCategory.KIDNAPPED:
-        newEntry = { ...base, category: ReportCategory.KIDNAPPED, dateKidnapped: extraField1 } as KidnappedMember;
-        break;
-      case ReportCategory.MISSING:
-        newEntry = { ...base, category: ReportCategory.MISSING, dateMissing: extraField1 } as MissingMember;
-        break;
-      case ReportCategory.DECEASED:
-        newEntry = { ...base, category: ReportCategory.DECEASED, dateOfDeath: extraField1, reason: extraField2 } as DeceasedMember;
-        break;
-      default:
-        return;
+    switch (selectedCat) {
+      case ReportCategory.ABSCONDED: newEntry.period = formData.detail1; break;
+      case ReportCategory.SICK: newEntry.illness = formData.detail1; newEntry.hospitalized = formData.hosp; break;
+      case ReportCategory.KIDNAPPED: newEntry.dateKidnapped = formData.detail1; break;
+      case ReportCategory.MISSING: newEntry.dateMissing = formData.detail1; break;
+      case ReportCategory.DECEASED: newEntry.dateOfDeath = formData.detail1; newEntry.reason = formData.detail2; break;
     }
 
     setEntries([...entries, newEntry]);
-    resetForm();
-    alert("Record saved successfully!");
+    setFormData({ name: '', code: '', detail1: '', detail2: '', hosp: false });
+    alert("Record successfully synced to Zonal Terminal.");
+    setCurrentView('DASHBOARD');
   };
 
-  const resetForm = () => {
-    setName('');
-    setStateCode('');
-    setExtraField1('');
-    setExtraField2('');
-    setIsHospitalized(false);
+  const downloadReport = () => {
+    const csvRows = [
+      ['Date', 'LGA', 'Category', 'Name', 'State Code', 'Details'].join(','),
+      ...entries.map(e => [
+        new Date(e.dateAdded).toLocaleDateString(),
+        e.lga,
+        e.category,
+        `"${e.name}"`,
+        e.stateCode,
+        'period' in e ? e.period : 'illness' in e ? e.illness : 'N/A'
+      ].join(','))
+    ].join('\n');
+    const blob = new Blob([csvRows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NYSC_Zonal_Report_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
   };
 
-  const removeEntry = (id: string) => {
-    if (confirm("Are you sure you want to delete this record?")) {
-      setEntries(entries.filter(e => e.id !== id));
-    }
-  };
-
-  const handleDownloadCSV = () => {
-    const headers = ['LGA', 'Category', 'Name', 'State Code', 'Extra Details'];
-    const rows = entries.map(e => {
-      let details = '';
-      if ('period' in e) details = `Period: ${e.period}`;
-      else if ('illness' in e) details = `Illness: ${e.illness}, Hospitalized: ${e.hospitalized}`;
-      else if ('dateKidnapped' in e) details = `Kidnapped: ${e.dateKidnapped}`;
-      else if ('dateMissing' in e) details = `Missing: ${e.dateMissing}`;
-      else if ('dateOfDeath' in e) details = `Died: ${e.dateOfDeath}, Reason: ${e.reason}`;
-      
-      return [e.lga, e.category, e.name, e.stateCode, details].map(field => `"${field}"`).join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Daura_Zone_Master_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleGenerateSummary = async () => {
-    if (entries.length === 0) {
-      alert("No data available to generate a summary.");
-      return;
-    }
-    setIsGeneratingSummary(true);
-    const text = await summarizeReport(entries, zoneName);
-    setSummary(text);
-    setIsGeneratingSummary(false);
-  };
-
-  const filteredEntries = useMemo(() => {
-    const currentLga = userRole === 'LGI' ? lgaContext : ziViewLga;
-    if (activeCategory === 'LGA_OVERVIEW') return [];
-    
+  const getFilteredEntries = () => {
     return entries.filter(e => {
-      const matchesLga = currentLga === 'OVERVIEW' || e.lga === currentLga;
-      const matchesCategory = e.category === activeCategory;
-      const matchesSearch = searchQuery === '' || 
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      return matchesLga && matchesCategory && matchesSearch;
-    });
-  }, [entries, userRole, lgaContext, ziViewLga, activeCategory, searchQuery]);
-
-  const lgaRecentEntries = useMemo(() => {
-    if (userRole !== 'LGI' || !lgaContext) return [];
-    return entries
-      .filter(e => e.lga === lgaContext)
-      .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
-      .slice(0, 5);
-  }, [entries, userRole, lgaContext]);
-
-  const handleLogout = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (window.confirm("Are you sure you want to end your secure reporting session and log out?")) {
-      setIsAuthenticated(false);
-      setUserRole(null);
-      setLgaContext(null);
-      setPendingRole(null);
-      setPendingLga(null);
-      setPinInput('');
-      setLoginError(false);
-      localStorage.removeItem('daura_user_role');
-      localStorage.removeItem('daura_lga_context');
-      localStorage.setItem('daura_authenticated', 'false');
-    }
+      const matchLga = userRole === 'ZI' ? true : e.lga === lgaContext;
+      const matchSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase()) || e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchLga && matchSearch;
+    }).sort((a,b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
   };
 
-  // Login Gateway Screen
+  const lgaStats = useMemo(() => {
+    const stats: Record<string, Record<string, number>> = {};
+    DAURA_ZONE_LGAS.forEach(lga => {
+      stats[lga] = { total: 0 };
+      Object.values(ReportCategory).forEach(cat => stats[lga][cat] = 0);
+    });
+    entries.forEach(e => {
+      if (stats[e.lga]) {
+        stats[e.lga].total++;
+        stats[e.lga][e.category]++;
+      }
+    });
+    return stats;
+  }, [entries]);
+
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-green-950 flex items-center justify-center p-4 overflow-hidden relative font-sans">
-        <div className="absolute inset-0 opacity-10 pointer-events-none">
-           <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-green-400 rounded-full blur-[150px] animate-pulse" />
-           <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-white rounded-full blur-[150px] animate-pulse delay-700" />
-        </div>
-        
-        <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col md:flex-row relative z-10 animate-in fade-in zoom-in-95 duration-700 border border-white/20">
-          <div className="md:w-5/12 bg-green-900 p-12 text-white flex flex-col justify-between relative overflow-hidden">
-            <div className="relative z-10">
-              <img src="https://api.dicebear.com/7.x/initials/svg?seed=NYSC&backgroundColor=ffffff" className="w-20 h-20 rounded-3xl mb-8 shadow-2xl border-4 border-green-800" alt="NYSC" />
-              <h1 className="text-4xl font-black mb-6 uppercase tracking-tighter leading-[0.9]">DAURA ZONE<br/><span className="text-green-400">SECURE PORTAL</span></h1>
-              <p className="text-green-100 opacity-80 leading-relaxed font-semibold text-sm max-w-xs">
-                Restricted reporting portal for Daura Zonal Secretariat. Authorized users only.
-              </p>
+      <div className="min-h-screen bg-[#064e3b] flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl p-8 md:p-12 overflow-hidden relative">
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 bg-green-50 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner border border-green-100">
+               <img src="https://api.dicebear.com/7.x/initials/svg?seed=NYSC&backgroundColor=064e3b" className="w-12 h-12 rounded-full" />
             </div>
-            
-            <div className="relative z-10 mt-12 space-y-4">
-               <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest text-green-400 bg-black/20 p-4 rounded-2xl border border-white/5 backdrop-blur-md">
-                 <div className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
-                 Official Reporting System
-               </div>
-            </div>
+            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Daura Zonal Command</h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-2">Administrative Security Gate</p>
           </div>
-          
-          <div className="md:w-7/12 p-12 bg-white flex flex-col">
-            {!pendingRole ? (
-              <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
-                <div>
-                  <h2 className="text-3xl font-black text-slate-900 tracking-tight">Access Control</h2>
-                  <p className="text-slate-600 text-sm mt-2 font-semibold">Select your designation to log in.</p>
+
+          {!pendingRole ? (
+            <div className="space-y-4">
+              <button onClick={() => setPendingRole('ZI')} className="w-full p-6 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-between group hover:bg-black transition-all">
+                <div className="text-left">
+                  <span className="text-[9px] font-black opacity-50 uppercase tracking-widest block">Executive Access</span>
+                  <span className="text-sm font-black uppercase">Zonal Inspector Terminal</span>
                 </div>
-                
-                <div className="space-y-6">
-                  <button 
-                    onClick={() => setPendingRole('ZI')}
-                    className="w-full group text-left p-8 rounded-3xl border-2 border-slate-50 hover:border-green-600 hover:bg-green-50 transition-all flex items-center gap-8 shadow-sm"
-                  >
-                    <div className="w-16 h-16 rounded-2xl bg-slate-100 group-hover:bg-green-600 group-hover:text-white flex items-center justify-center transition-all group-hover:scale-110 shadow-inner">
-                      <FileTextIcon />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Zonal Inspector (ZI)</h3>
-                      <p className="text-sm text-slate-600 font-semibold">Master dashboard for entire Daura Zone.</p>
-                    </div>
+                <div className="p-3 bg-white/10 rounded-xl"><DashboardIcon /></div>
+              </button>
+              <div className="grid grid-cols-2 gap-3">
+                {DAURA_ZONE_LGAS.map(l => (
+                  <button key={l} onClick={() => { setPendingRole('LGI'); setPendingLga(l); }} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-600 hover:border-green-600 hover:bg-green-50 transition-all text-center">
+                    {l}
                   </button>
-
-                  <div className="space-y-4 pt-6">
-                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] px-2">Local Government Inspectors (LGI)</h3>
-                    <div className="grid grid-cols-3 gap-3">
-                      {DAURA_ZONE_LGAS.map(lga => (
-                        <button 
-                          key={lga}
-                          onClick={() => {
-                            setPendingRole('LGI');
-                            setPendingLga(lga);
-                          }}
-                          className="text-center p-4 rounded-2xl border border-slate-200 hover:border-green-600 hover:text-green-700 text-slate-950 text-xs font-black transition-all bg-slate-100 hover:bg-green-50 hover:scale-[1.03] active:scale-95 shadow-sm"
-                        >
-                          {lga}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
-            ) : (
-              <div className="flex-1 flex flex-col justify-center animate-in slide-in-from-right-8 duration-500">
-                <button 
-                  onClick={() => {
-                    setPendingRole(null);
-                    setPendingLga(null);
-                    setPinInput('');
-                    setLoginError(false);
-                  }}
-                  className="mb-10 text-[10px] font-black text-slate-500 hover:text-green-600 transition-colors uppercase tracking-widest flex items-center gap-2 group"
-                >
-                  <span className="group-hover:-translate-x-1 transition-transform">←</span> Return to role selection
-                </button>
-
-                <div className="max-w-sm mx-auto w-full text-center space-y-8">
-                  <div>
-                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">Verify PIN</h2>
-                    <p className="text-slate-600 text-sm mt-3 font-semibold">Terminal for <span className="text-green-700 font-black">{pendingRole === 'ZI' ? 'Zonal Secretariat' : pendingLga}</span></p>
-                  </div>
-
-                  <form onSubmit={handleLogin} className="space-y-6">
-                    <div className="relative">
-                      <input 
-                        autoFocus
-                        type="password"
-                        inputMode="numeric"
-                        maxLength={4}
-                        value={pinInput}
-                        onChange={(e) => {
-                          setPinInput(e.target.value);
-                          setLoginError(false);
-                        }}
-                        placeholder="••••"
-                        className={`w-full text-center text-5xl tracking-[0.5em] font-black border-2 rounded-3xl p-8 focus:outline-none transition-all ${
-                          loginError 
-                            ? 'border-red-500 bg-red-50 text-red-600 animate-shake' 
-                            : 'border-slate-200 focus:border-green-600 focus:bg-white bg-slate-50 text-slate-900'
-                        }`}
-                      />
-                      {loginError && (
-                        <p className="absolute -bottom-8 left-0 right-0 text-red-600 text-[10px] font-black uppercase tracking-widest">Unauthorized Entry Attempt</p>
-                      )}
-                    </div>
-                    
-                    <button 
-                      type="submit" 
-                      disabled={pinInput.length < 4}
-                      className="w-full bg-slate-900 text-white rounded-3xl py-6 font-black uppercase tracking-widest hover:bg-black transition-all shadow-2xl disabled:opacity-20 active:scale-95"
-                    >
-                      Authenticate Session
-                    </button>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-6">
+               <div className="bg-green-50 p-6 rounded-2xl border border-green-100 text-center">
+                  <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">Target Terminal</span>
+                  <h2 className="text-lg font-black text-green-900 uppercase mt-1">{pendingLga || 'Zonal HQ'}</h2>
+               </div>
+               <div className="space-y-2">
+                 <input autoFocus type="password" value={pin} onChange={e => setPin(e.target.value)} maxLength={4} placeholder="••••" className="w-full text-center text-4xl font-black tracking-[0.5em] border-2 border-slate-100 rounded-2xl p-5 focus:border-green-600 outline-none" />
+                 {error && <p className="text-red-600 text-[10px] font-black uppercase text-center">Invalid Authorization Pin</p>}
+               </div>
+               <button type="submit" className="w-full bg-[#064e3b] text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Grant Access</button>
+               <button type="button" onClick={() => setPendingRole(null)} className="w-full text-[9px] font-black text-slate-400 uppercase hover:text-green-600">Switch Terminal</button>
+            </form>
+          )}
         </div>
-
-        <style>{`
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-8px); }
-            75% { transform: translateX(8px); }
-          }
-          .animate-shake { animation: shake 0.2s cubic-bezier(.36,.07,.19,.97) both; }
-        `}</style>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <header className={`text-white shadow-xl sticky top-0 z-50 border-b ${userRole === 'ZI' ? 'bg-indigo-950 border-indigo-900' : 'bg-green-900 border-green-800'}`}>
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-50 pb-20">
+      {/* Header Bar */}
+      <header className="bg-[#064e3b] text-white p-6 sticky top-0 z-40 shadow-xl">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="bg-white p-1.5 rounded-full shadow-inner">
-              <img src="https://api.dicebear.com/7.x/initials/svg?seed=NYSC&backgroundColor=006400" alt="NYSC Logo" className="w-10 h-10 rounded-full" />
+            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-[#064e3b] font-black text-xs shadow-inner">
+              {userRole === 'ZI' ? 'ZI' : 'LG'}
             </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight flex items-center gap-2 uppercase">
-                {userRole === 'ZI' ? 'Zonal HQ Portal' : `${lgaContext} Secure Zone`}
-              </h1>
-              <p className="text-[10px] opacity-80 font-black uppercase tracking-widest">
-                Official Weekly Compliance Reporting System
-              </p>
+            <div className="hidden sm:block">
+              <h1 className="text-[10px] font-black uppercase tracking-widest opacity-60">Daura Zone Secure Portal</h1>
+              <p className="text-xs font-black uppercase tracking-tight">{userRole === 'ZI' ? 'Zonal Inspector' : lgaContext}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20 flex items-center gap-3 backdrop-blur-sm relative z-[60]">
-              <div className="text-right">
-                <p className="text-[9px] font-black uppercase opacity-60 leading-none mb-1 text-white">Session Active</p>
-                <p className="text-sm font-black leading-none text-white">{userRole === 'ZI' ? 'Zonal Inspector' : lgaContext}</p>
-              </div>
-              <button 
-                onClick={handleLogout} 
-                className="ml-2 p-3 bg-red-600/90 text-white hover:bg-red-700 rounded-2xl transition-all group flex items-center gap-2 border border-red-500 shadow-lg active:scale-95" 
-                title="Sign Out"
-              >
-                <span className="text-[10px] font-black uppercase tracking-widest hidden md:inline">Sign Out</span>
-                <LogOutIcon />
-              </button>
-            </div>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCurrentView('DASHBOARD')} className={`p-3 rounded-xl transition-all ${currentView === 'DASHBOARD' ? 'bg-white text-green-900 shadow-lg' : 'hover:bg-white/10'}`}><DashboardIcon /></button>
+            {userRole === 'LGI' && <button onClick={() => setCurrentView('FORM')} className={`p-3 rounded-xl transition-all ${currentView === 'FORM' ? 'bg-white text-green-900 shadow-lg' : 'hover:bg-white/10'}`}><PlusIcon /></button>}
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="bg-red-500/20 hover:bg-red-500 text-white p-3 rounded-xl transition-all"><LogOutIcon /></button>
           </div>
         </div>
       </header>
 
-      {userRole === 'ZI' && (
-        <nav className="bg-white border-b border-slate-200 shadow-sm overflow-x-auto whitespace-nowrap px-4 py-2 sticky top-[76px] z-40">
-          <div className="max-w-7xl mx-auto flex items-center gap-2">
-            <button
-              onClick={() => {
-                setZiViewLga('OVERVIEW');
-                setActiveCategory(ReportCategory.ABSCONDED);
-              }}
-              className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${
-                ziViewLga === 'OVERVIEW' 
-                  ? 'bg-indigo-100 text-indigo-900 ring-2 ring-indigo-200 shadow-sm' 
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <DashboardIcon /> 📊 Zonal Overview
-            </button>
-            <div className="h-6 w-px bg-slate-200 mx-2" />
-            {DAURA_ZONE_LGAS.map(lga => (
-              <button
-                key={lga}
-                onClick={() => setZiViewLga(lga)}
-                className={`px-5 py-2.5 rounded-xl text-sm font-black transition-all ${
-                  ziViewLga === lga 
-                    ? 'bg-indigo-700 text-white shadow-lg shadow-indigo-200' 
-                    : 'text-slate-700 hover:bg-slate-50 border border-transparent'
-                }`}
-              >
-                {lga}
-              </button>
-            ))}
-          </div>
-        </nav>
-      )}
-
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 p-3 space-y-1 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 mb-2 flex items-center justify-between">
-              <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Navigation</h2>
-            </div>
-            
-            {userRole === 'LGI' && (
-              <button
-                onClick={() => setActiveCategory('LGA_OVERVIEW')}
-                className={`w-full text-left px-5 py-4 rounded-2xl transition-all flex items-center gap-4 font-black group mb-2 ${
-                  activeCategory === 'LGA_OVERVIEW' 
-                    ? 'bg-green-700 text-white shadow-lg' 
-                    : 'text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${activeCategory === 'LGA_OVERVIEW' ? 'bg-white/20 text-white' : 'bg-green-600/10 text-green-700'}`}>
-                  <DashboardIcon />
-                </div>
-                <span>Command Center</span>
-              </button>
-            )}
-
-            <div className="space-y-1">
-              {Object.values(ReportCategory).map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`w-full text-left px-5 py-4 rounded-2xl transition-all flex items-center justify-between group ${
-                    activeCategory === cat 
-                      ? 'bg-green-50 text-green-900 border border-green-100' 
-                      : 'text-slate-700 hover:bg-slate-50 border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center gap-4 truncate">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
-                      activeCategory === cat 
-                        ? 'bg-green-700 text-white shadow-md' 
-                        : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
-                    }`}>
-                      {CATEGORY_ICONS[cat]}
-                    </div>
-                    <span className={`truncate text-sm font-bold ${activeCategory === cat ? 'font-black' : ''}`}>{cat}</span>
-                  </div>
-                  <span className={`text-[10px] px-2.5 py-1.5 rounded-lg font-black min-w-[34px] text-center ${
-                    activeCategory === cat ? 'bg-white text-green-900 shadow-sm ring-1 ring-green-100' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {entries.filter(e => 
-                      (userRole === 'LGI' ? e.lga === lgaContext : (ziViewLga === 'OVERVIEW' || e.lga === ziViewLga)) && 
-                      e.category === cat
-                    ).length}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={`p-8 rounded-[2rem] shadow-2xl space-y-5 border relative overflow-hidden text-white ${userRole === 'ZI' ? 'bg-indigo-900 border-indigo-700' : 'bg-green-800 border-green-700'}`}>
-              <div className="absolute top-0 right-0 p-4 opacity-10">
-                <FileTextIcon />
-              </div>
-              <h3 className="text-xl font-black uppercase tracking-tight">{userRole === 'ZI' ? 'ZI Admin Hub' : `${lgaContext} Admin`}</h3>
-              <p className="text-sm opacity-90 leading-relaxed font-bold">
-                {userRole === 'ZI' ? 'Overseeing weekly compliance for Daura Zone.' : `Reporting for ${lgaContext} LGA. Keep all entries current.`}
-              </p>
-              
-              <div className="space-y-3 pt-4">
-                {userRole === 'ZI' && (
-                  <button 
-                    onClick={handleGenerateSummary}
-                    disabled={isGeneratingSummary || entries.length === 0}
-                    className="flex items-center justify-center gap-3 w-full bg-white text-indigo-950 hover:bg-indigo-50 py-4 rounded-2xl text-sm font-black transition-all shadow-xl disabled:opacity-50 active:scale-95"
-                  >
-                    <FileTextIcon /> {isGeneratingSummary ? 'Processing...' : 'Generate Official Report'}
-                  </button>
-                )}
-                <button 
-                  onClick={handleDownloadCSV}
-                  className={`flex items-center justify-center gap-2 w-full py-4 rounded-2xl text-sm font-black transition-all active:scale-95 border-2 ${userRole === 'ZI' ? 'bg-indigo-800 text-indigo-100 border-indigo-600 hover:bg-indigo-700' : 'bg-green-700 text-green-100 border-green-500 hover:bg-green-600'}`}
-                >
-                  <DownloadIcon /> Export CSV
-                </button>
-              </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-9 space-y-6">
-          {userRole === 'ZI' && ziViewLga === 'OVERVIEW' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-700">
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-700 flex items-center justify-center shadow-inner">
-                    <AbscondedIcon />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black text-red-700 uppercase tracking-widest leading-none mb-1">Absconded</p>
-                    <p className="text-3xl font-black text-slate-900 leading-none">
-                      {entries.filter(e => e.category === ReportCategory.ABSCONDED).length}
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center shadow-inner">
-                    <SickIcon />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest leading-none mb-1">Medical</p>
-                    <p className="text-3xl font-black text-slate-900 leading-none">
-                      {entries.filter(e => e.category === ReportCategory.SICK).length}
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shadow-inner">
-                    <KidnappedIcon />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest leading-none mb-1">Incidents</p>
-                    <p className="text-3xl font-black text-slate-900 leading-none">
-                      {entries.filter(e => e.category === ReportCategory.MISSING || e.category === ReportCategory.KIDNAPPED).length}
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-[1.5rem] border-2 border-slate-100 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shadow-inner">
-                    <DeceasedIcon />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest leading-none mb-1">Deceased</p>
-                    <p className="text-3xl font-black text-slate-900 leading-none">
-                      {entries.filter(e => e.category === ReportCategory.DECEASED).length}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[2rem] shadow-xl border-2 border-slate-100 overflow-hidden">
-                <div className="bg-indigo-950 px-10 py-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-2xl font-black text-white uppercase tracking-tight">Zone Status Tracker</h2>
-                    <p className="text-sm text-indigo-300 font-bold">Compliance overview for all 9 LGAs.</p>
-                  </div>
-                  <div className="flex items-center bg-indigo-900 px-5 py-3 rounded-2xl border border-indigo-700">
-                    <span className="text-[11px] font-black text-indigo-100 uppercase tracking-widest">
-                      LGAs Active: {new Set(entries.map(e => e.lga)).size} / 9
-                    </span>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50 border-b-2 border-slate-100">
-                        <th className="px-10 py-5 text-[11px] font-black text-slate-600 uppercase tracking-wider">Secretariat Name</th>
-                        <th className="px-4 py-5 text-[11px] font-black text-red-700 uppercase tracking-wider text-center">Abs.</th>
-                        <th className="px-4 py-5 text-[11px] font-black text-blue-700 uppercase tracking-wider text-center">Med.</th>
-                        <th className="px-4 py-5 text-[11px] font-black text-orange-700 uppercase tracking-wider text-center">Inc.</th>
-                        <th className="px-4 py-5 text-[11px] font-black text-indigo-700 uppercase tracking-wider text-center">Dec.</th>
-                        <th className="px-10 py-5 text-[11px] font-black text-slate-600 uppercase tracking-wider text-right">Progress</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {DAURA_ZONE_LGAS.map(lga => {
-                        const lgaEntries = entries.filter(e => e.lga === lga);
-                        const hasData = lgaEntries.length > 0;
-                        const stats = {
-                          abs: lgaEntries.filter(e => e.category === ReportCategory.ABSCONDED).length,
-                          sick: lgaEntries.filter(e => e.category === ReportCategory.SICK).length,
-                          inc: lgaEntries.filter(e => e.category === ReportCategory.MISSING || e.category === ReportCategory.KIDNAPPED).length,
-                          dec: lgaEntries.filter(e => e.category === ReportCategory.DECEASED).length,
-                        };
-
-                        return (
-                          <tr key={lga} onClick={() => setZiViewLga(lga)} className="hover:bg-indigo-50 transition-all cursor-pointer group">
-                            <td className="px-10 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className={`w-3.5 h-3.5 rounded-full ring-4 ${hasData ? 'bg-green-600 ring-green-100' : 'bg-slate-300 ring-slate-100'}`} />
-                                <span className="font-black text-slate-900 text-base uppercase group-hover:text-indigo-800 transition-colors">{lga}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-6 text-center text-base font-black text-slate-800">{stats.abs || '-'}</td>
-                            <td className="px-4 py-6 text-center text-base font-black text-slate-800">{stats.sick || '-'}</td>
-                            <td className="px-4 py-6 text-center text-base font-black text-slate-800">{stats.inc || '-'}</td>
-                            <td className="px-4 py-6 text-center text-base font-black text-slate-800">{stats.dec || '-'}</td>
-                            <td className="px-10 py-6 text-right">
-                              <span className={`px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 ${hasData ? 'bg-green-50 text-green-800 border-green-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                {hasData ? 'SUBMITTED' : 'NOT STARTED'}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {userRole === 'LGI' && activeCategory === 'LGA_OVERVIEW' && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-700">
-               <div className="bg-green-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl border border-green-800">
-                <div className="relative z-10">
-                  <h2 className="text-4xl font-black tracking-tighter uppercase leading-none">Command Center</h2>
-                  <p className="text-green-200 mt-2 font-black opacity-90 uppercase tracking-[0.2em] text-sm">{lgaContext} LGA SECRETARIAT</p>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-10">
-                    {Object.values(ReportCategory).map(cat => {
-                      const count = entries.filter(e => e.lga === lgaContext && e.category === cat).length;
-                      return (
-                        <button 
-                          key={cat}
-                          onClick={() => setActiveCategory(cat)}
-                          className="bg-green-800/80 hover:bg-green-700 border-2 border-green-700/50 p-6 rounded-3xl transition-all text-left flex flex-col justify-between h-40 group shadow-lg"
-                        >
-                          <div className="w-10 h-10 rounded-2xl bg-white/10 text-white flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                            {CATEGORY_ICONS[cat]}
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-black uppercase opacity-70 group-hover:opacity-100 leading-tight block mb-1">{cat}</span>
-                            <span className="text-4xl font-black">{count}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-[2rem] border-2 border-slate-100 shadow-sm overflow-hidden">
-                   <div className="px-8 py-6 border-b-2 border-slate-50 bg-slate-50 flex items-center justify-between">
-                    <h3 className="font-black text-slate-900 uppercase text-xs tracking-widest">Entry Checklist</h3>
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-600 animate-pulse shadow-sm" />
-                  </div>
-                  <div className="p-8 space-y-4">
-                    {Object.values(ReportCategory).map(cat => {
-                      const hasRecords = entries.some(e => e.lga === lgaContext && e.category === cat);
-                      return (
-                        <div key={cat} className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border-2 border-slate-100">
-                          <div className="flex items-center gap-5">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-md ${hasRecords ? 'bg-green-600 text-white' : 'bg-slate-300 text-slate-500'}`}>
-                              {CATEGORY_ICONS[cat]}
-                            </div>
-                            <span className={`text-base font-black ${hasRecords ? 'text-slate-900' : 'text-slate-400 italic'}`}>{cat}</span>
-                          </div>
-                          <button 
-                            onClick={() => setActiveCategory(cat)}
-                            className="text-[11px] font-black uppercase tracking-widest text-green-800 hover:text-green-600 transition-colors bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100"
-                          >
-                            {hasRecords ? 'View All' : 'Add New'}
-                          </button>
+      <main className="max-w-7xl mx-auto px-4 mt-8">
+        {userRole === 'ZI' && currentView === 'DASHBOARD' && (
+          <div className="mb-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Zonal Metrics */}
+            <div className="lg:col-span-1 space-y-6">
+               <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
+                  <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Zone Health Index</h2>
+                  <div className="space-y-4">
+                    {Object.values(ReportCategory).map(cat => (
+                      <div key={cat} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${CATEGORY_COLORS[cat]}`}>{CATEGORY_ICONS[cat]}</div>
+                          <span className="text-[10px] font-black uppercase text-slate-600">{cat}</span>
                         </div>
-                      );
-                    })}
+                        <span className="font-black text-slate-900">{entries.filter(e => e.category === cat).length}</span>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                  <button onClick={downloadReport} className="w-full mt-6 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 hover:bg-black transition-all">
+                    <DownloadIcon /> Export Master CSV
+                  </button>
+                  <button 
+                    disabled={isGenerating}
+                    onClick={async () => {
+                      setIsGenerating(true);
+                      try {
+                        const res = await summarizeReport(entries, "Daura Zonal Command");
+                        setSummary(res);
+                      } catch (e) { alert("AI Gateway Busy."); }
+                      setIsGenerating(false);
+                    }}
+                    className="w-full mt-3 bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg"
+                  >
+                    <FileTextIcon /> {isGenerating ? 'ANALYZING...' : 'Compile AI Memo'}
+                  </button>
+               </div>
+            </div>
 
-                <div className="bg-white rounded-[2rem] border-2 border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                  <div className="px-8 py-6 border-b-2 border-slate-50 bg-slate-50 flex items-center justify-between">
-                    <h3 className="font-black text-slate-900 uppercase text-xs tracking-widest">Recent Activity</h3>
-                  </div>
-                  <div className="p-6 flex-1">
-                    {lgaRecentEntries.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-20">
-                        <p className="text-base font-black italic text-slate-500">Awaiting weekly input...</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {lgaRecentEntries.map(entry => (
-                          <div key={entry.id} className="p-5 rounded-2xl hover:bg-slate-50 transition-colors flex items-center justify-between border-2 border-transparent hover:border-slate-100 bg-slate-50/30 shadow-sm">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-green-100 text-green-700">
-                                {CATEGORY_ICONS[entry.category]}
-                              </div>
-                              <div>
-                                <p className="font-black text-slate-900 uppercase text-sm tracking-tight leading-none">{entry.name}</p>
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">{entry.category} • {entry.stateCode}</p>
-                              </div>
-                            </div>
-                            <button onClick={() => removeEntry(entry.id)} className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
-                              <TrashIcon />
-                            </button>
+            {/* LGA Oversight Grid */}
+            <div className="lg:col-span-2">
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
+                <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">LGA Field Monitoring</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                   {DAURA_ZONE_LGAS.map(lga => {
+                     const s = lgaStats[lga];
+                     const isCritical = s[ReportCategory.DECEASED] > 0 || s[ReportCategory.KIDNAPPED] > 0;
+                     return (
+                       <div key={lga} className={`p-5 rounded-2xl border-2 transition-all hover:scale-[1.02] ${isCritical ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
+                          <div className="flex justify-between items-start mb-4">
+                             <h3 className="text-[11px] font-black uppercase text-slate-900">{lga}</h3>
+                             <div className="bg-white px-2 py-1 rounded-lg border border-slate-200 text-[9px] font-black text-slate-500 shadow-sm">{s.total} Total</div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                          <div className="flex flex-wrap gap-1.5">
+                             {Object.values(ReportCategory).map(cat => (
+                               s[cat] > 0 && (
+                                 <div key={cat} className={`w-6 h-6 rounded-md flex items-center justify-center text-[8px] font-black shadow-sm ${CATEGORY_COLORS[cat]}`}>
+                                    {s[cat]}
+                                 </div>
+                               )
+                             ))}
+                          </div>
+                          {isCritical && <div className="mt-3 text-[8px] font-black text-red-600 uppercase flex items-center gap-1 animate-pulse">⚠️ Priority Required</div>}
+                       </div>
+                     );
+                   })}
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {activeCategory !== 'LGA_OVERVIEW' && (
-            <div className="space-y-6 animate-in zoom-in-95 duration-500">
-               <div className="bg-white rounded-[2rem] shadow-xl border-2 border-slate-100 overflow-hidden">
-                <div className={`px-10 py-8 border-b-2 flex flex-col sm:flex-row sm:items-center justify-between gap-6 ${userRole === 'ZI' ? 'bg-indigo-50 border-indigo-100' : 'bg-green-50 border-green-100'}`}>
-                  <div className="flex items-center gap-6">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl ${userRole === 'ZI' ? 'bg-indigo-700' : 'bg-green-700'}`}>
-                      {CATEGORY_ICONS[activeCategory]}
+        {currentView === 'DASHBOARD' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="relative flex-1 w-full">
+                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
+                <input type="text" placeholder="Search Master Ledger by Name or State Code..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full bg-white border border-slate-200 rounded-2xl pl-16 pr-8 py-5 text-sm font-bold shadow-sm focus:border-green-600 outline-none" />
+              </div>
+              {userRole === 'LGI' && (
+                <button onClick={() => setCurrentView('FORM')} className="w-full md:w-auto bg-[#064e3b] text-white px-10 py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all">
+                  <PlusIcon /> Submit Weekly Report
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {getFilteredEntries().map(e => (
+                <div key={e.id} className="bg-white rounded-[2rem] border border-slate-100 p-8 shadow-sm hover:shadow-xl transition-all relative group overflow-hidden">
+                  <div className={`absolute top-0 right-0 p-4 font-black text-[9px] uppercase tracking-widest ${CATEGORY_COLORS[e.category]} rounded-bl-2xl border-l border-b`}>
+                    {e.category}
+                  </div>
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${CATEGORY_COLORS[e.category]}`}>
+                      {CATEGORY_ICONS[e.category]}
                     </div>
                     <div>
-                      <h2 className="text-2xl font-black text-slate-900 flex items-center gap-4">
-                        Submit Weekly Record
-                      </h2>
-                      <p className="text-sm font-black text-slate-600 mt-1 uppercase tracking-widest">{activeCategory} • {userRole === 'LGI' ? lgaContext : ziViewLga} LGA</p>
+                      <h4 className="font-black text-slate-900 uppercase text-sm truncate max-w-[150px]">{e.name}</h4>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{e.stateCode}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => userRole === 'LGI' ? setActiveCategory('LGA_OVERVIEW') : setZiViewLga('OVERVIEW')}
-                    className="text-xs font-black text-slate-500 hover:text-slate-800 uppercase tracking-widest underline underline-offset-4 decoration-2"
-                  >
-                    Back to Dashboard
-                  </button>
-                </div>
-                <form onSubmit={handleAddEntry} className="p-10">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    {/* Category Selection Dropdown */}
-                    <div className="space-y-4 md:col-span-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Report Type (Dropdown)</label>
-                      </div>
-                      <div className="relative">
-                        <select 
-                          value={activeCategory}
-                          onChange={(e) => setActiveCategory(e.target.value as ReportCategory)}
-                          className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all cursor-pointer appearance-none shadow-sm"
-                        >
-                          {Object.values(ReportCategory).map(cat => (
-                            <option key={cat} value={cat}>{cat.toUpperCase()}</option>
-                          ))}
-                        </select>
-                        <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                        </div>
-                      </div>
+                  <div className="bg-slate-50 p-5 rounded-2xl space-y-3 mb-6">
+                    <div className="flex justify-between text-[9px] font-black uppercase">
+                      <span className="text-slate-400">Jurisdiction</span>
+                      <span className="text-indigo-900">{e.lga} LGA</span>
                     </div>
-
-                    <div className="space-y-4">
-                      <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Full Name of Corps Member</label>
-                      <input 
-                        required 
-                        type="text" 
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="ENTER NAME"
-                        className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 placeholder:font-normal uppercase"
-                      />
+                    <div className="pt-2 border-t border-slate-200">
+                      <p className="text-[10px] font-bold text-slate-600 leading-relaxed italic">
+                        "{'period' in e ? e.period : 'illness' in e ? e.illness : 'Details logged in terminal.'}"
+                      </p>
                     </div>
-                    <div className="space-y-4">
-                      <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">State Code</label>
-                      <input 
-                        required 
-                        type="text" 
-                        value={stateCode}
-                        onChange={(e) => setStateCode(e.target.value)}
-                        placeholder="KT/24B/0000"
-                        className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 placeholder:font-normal uppercase"
-                      />
-                    </div>
-
-                    {activeCategory === ReportCategory.ABSCONDED && (
-                      <div className="space-y-4 md:col-span-2">
-                        <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Period of Abscondment</label>
-                        <input required type="text" value={extraField1} onChange={(e) => setExtraField1(e.target.value)} placeholder="e.g. 3 weeks, Dates, or Reasons" className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 placeholder:font-normal" />
-                      </div>
-                    )}
-
-                    {activeCategory === ReportCategory.SICK && (
-                      <>
-                        <div className="space-y-4">
-                          <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Type of Illness / Diagnosis</label>
-                          <input required type="text" value={extraField1} onChange={(e) => setExtraField1(e.target.value)} placeholder="Diagnosis" className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 placeholder:font-normal" />
-                        </div>
-                        <div className="flex items-center mt-12 bg-slate-100 px-8 py-5 rounded-2xl border-2 border-slate-200 shadow-inner">
-                          <label className="inline-flex items-center cursor-pointer group w-full">
-                            <input type="checkbox" checked={isHospitalized} onChange={(e) => setIsHospitalized(e.target.checked)} className="w-8 h-8 text-green-700 rounded-xl border-2 border-slate-300 focus:ring-green-500 shadow-sm" />
-                            <span className="ml-6 text-base font-black text-slate-900 uppercase tracking-widest group-hover:text-green-800 transition-colors">Hospitalized? (Yes/No)</span>
-                          </label>
-                        </div>
-                      </>
-                    )}
-
-                    {(activeCategory === ReportCategory.KIDNAPPED || activeCategory === ReportCategory.MISSING) && (
-                      <div className="space-y-4 md:col-span-2">
-                        <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Date of Incident</label>
-                        <input required type="date" value={extraField1} onChange={(e) => setExtraField1(e.target.value)} className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-xl font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all" />
-                      </div>
-                    )}
-
-                    {activeCategory === ReportCategory.DECEASED && (
-                      <>
-                        <div className="space-y-4">
-                          <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Date of Passing</label>
-                          <input required type="date" value={extraField1} onChange={(e) => setExtraField1(e.target.value)} className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-xl font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all" />
-                        </div>
-                        <div className="space-y-4">
-                          <label className="text-[12px] font-black text-slate-700 uppercase tracking-widest ml-1 block">Reason for Death</label>
-                          <input required type="text" value={extraField2} onChange={(e) => setExtraField2(e.target.value)} placeholder="Reason" className="w-full border-2 border-slate-200 bg-white rounded-2xl px-6 py-5 text-lg font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 placeholder:font-normal" />
-                        </div>
-                      </>
-                    )}
                   </div>
-                  <div className="mt-14 flex justify-end">
-                    <button type="submit" className={`font-black py-6 px-20 rounded-[1.8rem] shadow-2xl transition-all flex items-center gap-5 active:scale-95 text-lg uppercase tracking-widest ${userRole === 'ZI' ? 'bg-indigo-700 hover:bg-indigo-800 text-white shadow-indigo-200' : 'bg-green-800 hover:bg-green-900 text-white shadow-green-200'}`}>
-                      <PlusIcon /> Commit To Weekly Ledger
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      const text = `*NYSC ZONAL REPORT*\nLGA: ${e.lga}\nCat: ${e.category}\nName: ${e.name}\nCode: ${e.stateCode}`;
+                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                    }} className="flex-1 bg-green-50 text-green-700 p-3 rounded-xl text-[9px] font-black uppercase flex items-center justify-center gap-2 hover:bg-green-600 hover:text-white transition-all">
+                      <ShareIcon /> Dispatch
                     </button>
-                  </div>
-                </form>
-              </div>
-
-              <div className="bg-white rounded-[2rem] shadow-lg border-2 border-slate-100 overflow-hidden">
-                <div className="px-10 py-8 border-b-2 border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-slate-50/50">
-                  <h2 className="text-[11px] font-black text-slate-600 uppercase tracking-widest flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white ${userRole === 'ZI' ? 'bg-indigo-700' : 'bg-green-700'}`}>
-                      {CATEGORY_ICONS[activeCategory]}
-                    </div>
-                    Entry History For {activeCategory}
-                  </h2>
-                  
-                  {/* Search Bar */}
-                  <div className="relative max-w-sm w-full">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                      <SearchIcon />
-                    </div>
-                    <input 
-                      type="text" 
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search Name or Code..."
-                      className="w-full border-2 border-slate-200 bg-white rounded-2xl pl-12 pr-6 py-3.5 text-sm font-black text-slate-900 focus:ring-4 focus:ring-green-500/20 focus:border-green-600 focus:outline-none transition-all placeholder:text-slate-300 uppercase tracking-tight"
-                    />
+                    <button onClick={() => { if(confirm("Confirm deletion?")) setEntries(entries.filter(x => x.id !== e.id)); }} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all"><TrashIcon /></button>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50/50 border-b-2 border-slate-50">
-                        <th className="px-10 py-5 text-[11px] font-black text-slate-600 uppercase tracking-widest">Corps Member</th>
-                        <th className="px-10 py-5 text-[11px] font-black text-slate-600 uppercase tracking-widest">State Code</th>
-                        <th className="px-10 py-5 text-[11px] font-black text-slate-600 uppercase tracking-widest text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredEntries.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="px-10 py-28 text-center">
-                            <p className="text-slate-400 font-black italic text-lg">
-                              {searchQuery ? `No matches found for "${searchQuery}"` : `No records found for ${activeCategory} this week.`}
-                            </p>
-                            {searchQuery && (
-                              <button 
-                                onClick={() => setSearchQuery('')}
-                                className="mt-4 text-xs font-black text-green-700 hover:text-green-900 uppercase tracking-widest"
-                              >
-                                Clear Search Filter
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredEntries.map((entry) => (
-                          <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
-                            <td className="px-10 py-7 font-black text-slate-900 uppercase tracking-tight text-base">
-                              <div className="flex items-center gap-4">
-                                <span className={`w-2 h-2 rounded-full ${userRole === 'ZI' ? 'bg-indigo-600' : 'bg-green-600'}`} />
-                                {entry.name}
-                              </div>
-                              <p className="text-[10px] text-slate-400 font-bold block md:hidden ml-6">{entry.stateCode}</p>
-                            </td>
-                            <td className="px-10 py-7 text-slate-600 font-mono text-sm font-bold">{entry.stateCode}</td>
-                            <td className="px-10 py-7 text-right">
-                              <button onClick={() => removeEntry(entry.id)} className="p-4 text-slate-300 hover:text-red-700 rounded-2xl hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100 shadow-sm border border-transparent hover:border-red-100"><TrashIcon /></button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+              ))}
+              {getFilteredEntries().length === 0 && (
+                <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border-2 border-dashed border-slate-200">
+                  <p className="text-slate-300 font-black uppercase tracking-widest">No matching records found in ledger</p>
                 </div>
-              </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-10 duration-500">
+             <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden border border-slate-100">
+                <div className="p-10 bg-slate-900 text-white flex justify-between items-center">
+                   <div>
+                      <h2 className="text-xl font-black uppercase tracking-tight">New Incident Report</h2>
+                      <p className="text-[10px] font-black opacity-50 uppercase tracking-widest mt-1">Terminal: {lgaContext} LGA</p>
+                   </div>
+                   <button onClick={() => setCurrentView('DASHBOARD')} className="text-white/50 hover:text-white font-black text-xs uppercase tracking-widest">Cancel</button>
+                </div>
+                
+                <div className="p-10">
+                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-10">
+                      {Object.values(ReportCategory).map(cat => (
+                        <button key={cat} onClick={() => setSelectedCat(cat)} className={`p-4 rounded-xl flex flex-col items-center gap-2 transition-all border-2 ${selectedCat === cat ? 'bg-green-50 border-green-600 text-green-900' : 'bg-slate-50 border-transparent text-slate-400'}`}>
+                           <div className="text-sm">{CATEGORY_ICONS[cat]}</div>
+                           <span className="text-[8px] font-black uppercase text-center leading-none">{cat.split('/')[0]}</span>
+                        </button>
+                      ))}
+                   </div>
+
+                   <form onSubmit={submitForm} className="space-y-6">
+                      <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-2">Corps Member Name</label>
+                         <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="SURNAME FIRSTNAME MIDDLENAME" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 font-bold uppercase focus:border-green-600 outline-none" />
+                      </div>
+                      <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-2">State Code</label>
+                         <input required value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} placeholder="KT/24B/0000" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 font-bold uppercase focus:border-green-600 outline-none" />
+                      </div>
+                      
+                      <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-2">Incident/Period Details</label>
+                         <textarea required value={formData.detail1} onChange={e => setFormData({...formData, detail1: e.target.value})} placeholder="Provide detailed context..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 font-bold h-32 resize-none focus:border-green-600 outline-none" />
+                      </div>
+
+                      {selectedCat === ReportCategory.SICK && (
+                        <label className="flex items-center gap-4 p-5 bg-blue-50 rounded-2xl border border-blue-100 cursor-pointer">
+                           <input type="checkbox" checked={formData.hosp} onChange={e => setFormData({...formData, hosp: e.target.checked})} className="w-5 h-5 accent-blue-600" />
+                           <span className="text-[10px] font-black uppercase text-blue-900">Patient is currently Hospitalized?</span>
+                        </label>
+                      )}
+
+                      <button type="submit" className="w-full bg-[#064e3b] text-white py-6 rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:scale-[1.01] transition-all flex items-center justify-center gap-3 mt-6">
+                        <PlusIcon /> Commit to Zonal Ledger
+                      </button>
+                   </form>
+                </div>
+             </div>
+          </div>
+        )}
       </main>
 
+      {/* AI Summary Modal */}
       {summary && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[3rem] shadow-2xl max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-400 relative border-4 border-indigo-900/10">
-            <div className="p-10 border-b-2 border-slate-100 flex justify-between items-center bg-indigo-50/50">
-              <div className="flex items-center gap-8">
-                <div className="p-6 bg-indigo-950 rounded-[1.8rem] text-white shadow-2xl shadow-indigo-200">
-                  <FileTextIcon />
-                </div>
-                <div>
-                  <h3 className="text-4xl font-black text-slate-900 tracking-tighter leading-none uppercase">Official Zonal Summary</h3>
-                  <p className="text-sm text-indigo-800 font-black mt-3 uppercase tracking-[0.4em]">Week Ending {new Date().toLocaleDateString('en-GB')}</p>
-                </div>
-              </div>
-              <button onClick={() => setSummary(null)} className="p-6 hover:bg-slate-200 rounded-3xl text-slate-500 transition-all font-black text-3xl active:scale-90 shadow-sm">✕</button>
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-500">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Zonal Executive Memorandum</h2>
+              <button onClick={() => setSummary(null)} className="p-3 hover:bg-slate-200 rounded-full transition-all">✕</button>
             </div>
-            <div className="p-10 overflow-y-auto bg-white scrollbar-hide">
-              <div className="p-12 border-4 border-double border-slate-100 rounded-[2.5rem] bg-slate-50/50 font-serif text-slate-950 leading-[2] shadow-inner whitespace-pre-wrap text-2xl selection:bg-indigo-200 tracking-tight">
-                {summary}
-              </div>
+            <div className="p-10 overflow-y-auto whitespace-pre-wrap font-serif text-lg leading-relaxed text-slate-800 bg-slate-50/50">
+              {summary}
             </div>
-            <div className="p-10 border-t-2 border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-end gap-6">
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(summary);
-                  alert("Zonal memorandum successfully copied to clipboard!");
-                }}
-                className="flex items-center justify-center gap-5 px-14 py-7 bg-slate-950 text-white rounded-[2rem] font-black hover:bg-black transition-all shadow-2xl active:scale-95 group"
-              >
-                <ShareIcon /> <span className="uppercase tracking-widest text-sm">Copy Memo To Clipboard</span>
+            <div className="p-8 border-t flex justify-end gap-3 bg-white">
+              <button onClick={() => {
+                window.open(`https://wa.me/?text=${encodeURIComponent("*ZONAL MEMO SUMMARY*\n\n" + summary.substring(0, 500) + "...")}`, '_blank');
+              }} className="px-8 py-4 bg-green-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
+                <ShareIcon /> Official Dispatch
               </button>
-              <button 
-                onClick={() => setSummary(null)}
-                className="px-20 py-7 bg-indigo-800 text-white rounded-[2rem] font-black hover:bg-indigo-950 transition-all shadow-2xl active:scale-95 uppercase tracking-widest text-sm border-2 border-indigo-600"
-              >
-                Close Report
-              </button>
+              <button onClick={() => setSummary(null)} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">Close Record</button>
             </div>
           </div>
         </div>
       )}
 
-      <footer className="bg-white border-t-2 border-slate-100 py-20 mt-10">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <p className="text-[12px] font-black text-slate-500 uppercase tracking-[0.4em] leading-relaxed max-w-2xl mx-auto italic">
-            Official NYSC Zonal Administration Portal • Daura Zone Command<br/>
-            Katsina State Secretariat • Weekly Compliance System<br/>
-            © {new Date().getFullYear()} Federal Republic of Nigeria
-          </p>
-          <div className="mt-8 opacity-20 flex justify-center gap-8 grayscale">
-            <img src="https://api.dicebear.com/7.x/initials/svg?seed=NYSC&backgroundColor=006400" className="h-10 w-10 rounded-full" />
-            <img src="https://api.dicebear.com/7.x/initials/svg?seed=NGA&backgroundColor=006400" className="h-10 w-10 rounded-full" />
-          </div>
-        </div>
+      {/* Footer Info */}
+      <footer className="mt-20 text-center text-slate-400">
+         <p className="text-[9px] font-black uppercase tracking-[0.4em]">Internal Security System • Daura Zone HQ</p>
+         <p className="text-[8px] font-bold mt-2">v3.0 Secure Terminal • Authorized Personnel Only</p>
       </footer>
     </div>
   );
