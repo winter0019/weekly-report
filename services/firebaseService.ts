@@ -18,7 +18,6 @@ let dbInstance: Firestore | null = null;
 
 /**
  * Initializes Firebase and Firestore.
- * Using a singleton pattern to ensure only one instance is active.
  */
 export const initFirebase = (config: any): Firestore => {
   try {
@@ -30,11 +29,13 @@ export const initFirebase = (config: any): Firestore => {
     }
 
     if (!dbInstance) {
+      // getFirestore(app) registers the firestore service to the app instance
       dbInstance = getFirestore(app);
     }
     return dbInstance;
   } catch (error) {
-    console.error("CRITICAL: Error initializing Firebase/Firestore:", error);
+    console.error("Firebase/Firestore Initialization Failed:", error);
+    if (dbInstance) return dbInstance;
     throw error;
   }
 };
@@ -44,17 +45,19 @@ export const initFirebase = (config: any): Firestore => {
  */
 const normalizeValue = (value: any): any => {
   if (value === null || value === undefined) return "";
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-
-  if (value instanceof Timestamp) return value.toDate().toISOString();
+  
   if (value && typeof value.toDate === 'function') {
-    try { return value.toDate().toISOString(); } catch (e) {}
-  }
-  if (value && typeof value.seconds === 'number' && typeof value.nanoseconds === 'number') {
-    return new Date(value.seconds * 1000).toISOString();
+    try {
+      return value.toDate().toISOString();
+    } catch (e) {
+      return String(value);
+    }
   }
 
-  if (Array.isArray(value)) return value.map(normalizeValue);
+  if (Array.isArray(value)) {
+    return value.map(normalizeValue);
+  }
+  
   if (typeof value === 'object' && value.constructor === Object) {
     const normalized: any = {};
     for (const key in value) {
@@ -64,6 +67,11 @@ const normalizeValue = (value: any): any => {
     }
     return normalized;
   }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
   return String(value);
 };
 
@@ -73,7 +81,7 @@ export const subscribeToReports = (
   onError?: (err: any) => void
 ) => {
   if (!database) {
-    console.warn("subscribeToReports: Firestore instance not provided.");
+    console.error("Firestore instance missing in subscribeToReports");
     return () => {};
   }
   
@@ -82,16 +90,20 @@ export const subscribeToReports = (
     
     return onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(docSnapshot => {
-        const normalizedData = normalizeValue(docSnapshot.data());
-        return { id: docSnapshot.id, ...normalizedData };
+        const rawData = docSnapshot.data();
+        const normalizedData = normalizeValue(rawData);
+        return { 
+          id: docSnapshot.id, 
+          ...normalizedData 
+        };
       });
       onUpdate(data);
     }, (error) => {
-      console.error("Firestore subscription failure:", error);
+      console.error("Snapshot listener error:", error);
       if (onError) onError(error);
     });
   } catch (error) {
-    console.error("Error setting up Firestore snapshot listener:", error);
+    console.error("Error setting up snapshot listener:", error);
     return () => {};
   }
 };

@@ -54,7 +54,7 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   [ReportCategory.DECEASED]: <DeceasedIcon />,
 };
 
-type ViewMode = 'DASHBOARD' | 'FORM' | 'STAT_REPORT';
+type ViewMode = 'DASHBOARD' | 'FORM';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
@@ -84,14 +84,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      dbRef.current = initFirebase(firebaseConfig);
-      const unsubscribe = subscribeToReports(dbRef.current, (data) => setEntries(data as CorpsMemberEntry[]));
-      return () => unsubscribe && unsubscribe();
+      try {
+        dbRef.current = initFirebase(firebaseConfig);
+        const unsubscribe = subscribeToReports(dbRef.current, (data) => setEntries(data as CorpsMemberEntry[]));
+        return () => unsubscribe && unsubscribe();
+      } catch (err) {
+        console.error("Setup error", err);
+      }
     }
   }, [isAuthenticated]);
 
   const filteredEntries = useMemo(() => {
-    // Role based base filtering
     let base = userRole === 'ZI' ? entries : entries.filter(e => e.lga === lgaContext);
 
     return base.filter(e => {
@@ -128,11 +131,53 @@ const App: React.FC = () => {
     location.reload();
   };
 
+  const handleDownloadCSV = () => {
+    if (filteredEntries.length === 0) return;
+    const headers = ["Name", "State Code", "LGA", "Category", "Date Added", "Details"];
+    const rows = filteredEntries.map(e => [
+      e.name,
+      e.stateCode,
+      e.lga,
+      e.category,
+      new Date(e.dateAdded).toLocaleDateString(),
+      (e as any).details || ""
+    ].map(val => `"${val.toString().replace(/"/g, '""')}"`).join(","));
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `NYSC_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleShare = async () => {
+    const text = `NYSC Status Report - ${new Date().toLocaleDateString()}\nRecords: ${filteredEntries.length}\nGenerated via Daura Portal.`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'NYSC Report Export',
+          text: text,
+          url: window.location.href,
+        });
+      } catch (err) {
+        console.error("Share failed", err);
+      }
+    } else {
+      navigator.clipboard.writeText(text);
+      alert("Report summary copied to clipboard!");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
       ...formData,
-      lga: lgaContext || 'Daura', // For ZI using specific entry
+      lga: lgaContext || 'Daura',
       dateAdded: editingEntry ? editingEntry.dateAdded : new Date().toISOString(),
     };
     try {
@@ -150,13 +195,13 @@ const App: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 animate-fade-in">
           <div className="text-center mb-10">
             <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">NYSC DAURA</h1>
             <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Intelligence Access</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-6">
-            <select required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-none" onChange={e => {
+            <select required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" onChange={e => {
               const v = e.target.value;
               if (v === 'ZI') { setPendingRole('ZI'); setPendingLga(null); }
               else { setPendingRole('LGI'); setPendingLga(v as DauraLga); }
@@ -176,117 +221,146 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className={`bg-slate-900 text-white p-6 shadow-xl flex justify-between items-center`}>
-        <div className="flex items-center gap-4">
+      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50">
+        <div className="flex items-center gap-3 md:gap-4">
           <DashboardIcon />
           <div>
-            <h1 className="text-lg font-black uppercase tracking-tight">{userRole === 'ZI' ? 'DAURA ZONAL HQ' : `${lgaContext} STATION`}</h1>
-            <p className="text-[9px] opacity-60 font-bold uppercase tracking-widest">NYSC Compliance Hub</p>
+            <h1 className="text-sm md:text-lg font-black uppercase tracking-tight">{userRole === 'ZI' ? 'DAURA ZONAL HQ' : `${lgaContext} STATION`}</h1>
+            <p className="text-[8px] md:text-[9px] opacity-60 font-bold uppercase tracking-widest">NYSC Compliance Hub</p>
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleLogout} className="bg-white/10 hover:bg-red-500/30 p-3 rounded-xl transition-all"><LogOutIcon /></button>
+          {currentView === 'DASHBOARD' && (
+            <>
+              <button onClick={handleDownloadCSV} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all hidden md:block"><DownloadIcon /></button>
+              <button onClick={handleShare} title="Share Report" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><ShareIcon /></button>
+            </>
+          )}
+          <button onClick={handleLogout} title="Logout" className="bg-white/10 hover:bg-red-500/30 p-2 md:p-3 rounded-xl transition-all"><LogOutIcon /></button>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full p-6 md:p-8 space-y-8">
+      <main className="flex-1 max-w-6xl mx-auto w-full p-4 md:p-8 space-y-6">
         {currentView === 'DASHBOARD' && (
-          <div className="space-y-6">
-            {/* Action Bar */}
-            <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-              <div className="relative flex-1">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
-                <input type="text" placeholder="Search name or code..." className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-medium" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <div className="space-y-6 animate-fade-in">
+            {/* Header / Stats */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Status Overview</h2>
+              <div className="flex items-center gap-3">
+                 <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full border border-emerald-200">{filteredEntries.length} Active Records</span>
+                 <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-5 py-2.5 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-900 transition-all"><PlusIcon /> Add New</button>
               </div>
-              <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-6 py-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2 shadow-lg"><PlusIcon /> New Report</button>
             </div>
 
-            {/* Filter Dashboard */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 mb-1.5 block ml-1">Category</label>
-                <select className="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
+            {/* Filter Bar */}
+            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4">
+              <div className="relative flex-1">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
+                <input type="text" placeholder="Search by name or state code..." className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 border-none outline-none text-sm font-medium focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <select className="bg-slate-50 border-none rounded-xl px-4 py-3 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
                   <option value="ALL">All Categories</option>
                   {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+                <button onClick={() => { setSearchQuery(''); setFilterCategory('ALL'); setStartDate(''); setEndDate(''); }} className="bg-slate-100 text-slate-400 px-4 py-3 rounded-xl hover:bg-slate-200 transition-all"><TrashIcon /></button>
               </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 mb-1.5 block ml-1">From Date</label>
-                <input type="date" className="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={startDate} onChange={e => setStartDate(e.target.value)} />
-              </div>
-              <div>
-                <label className="text-[10px] font-black uppercase text-slate-400 mb-1.5 block ml-1">To Date</label>
-                <input type="date" className="w-full p-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={endDate} onChange={e => setEndDate(e.target.value)} />
-              </div>
-              <button onClick={() => { setSearchQuery(''); setFilterCategory('ALL'); setStartDate(''); setEndDate(''); }} className="p-3 text-slate-400 hover:text-emerald-700 font-black uppercase text-[10px] tracking-widest text-left">Reset Filters</button>
             </div>
 
-            {/* Entries Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredEntries.map(entry => (
-                <div key={entry.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-all group relative">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 rounded-xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
-                    <span className="text-[8px] font-black bg-slate-50 text-slate-400 px-2 py-1 rounded-full uppercase">{entry.lga}</span>
+            {/* Content Area */}
+            {filteredEntries.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredEntries.map(entry => (
+                  <div key={entry.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-xl transition-all group relative border-t-8" style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`p-3 rounded-xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
+                      <span className="text-[9px] font-black bg-slate-50 text-slate-400 px-2 py-1 rounded-md uppercase tracking-widest">{entry.lga}</span>
+                    </div>
+                    <div className="mb-4">
+                      <h3 className="font-black text-slate-900 uppercase text-base leading-tight mb-1">{entry.name}</h3>
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{entry.stateCode}</p>
+                    </div>
+                    <div className="pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black uppercase text-slate-400">
+                      <span className="flex items-center gap-1.5"><FileTextIcon /> {entry.category}</span>
+                      <span>{new Date(entry.dateAdded).toLocaleDateString()}</span>
+                    </div>
+                    
+                    <div className="mt-4 pt-4 flex gap-2 justify-end border-t border-slate-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || ''}); setCurrentView('FORM'); }} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors">✏️ Edit</button>
+                      <button onClick={() => { if(confirm("Are you sure?")) deleteReport(dbRef.current, entry.id)}} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><TrashIcon /></button>
+                    </div>
                   </div>
-                  <div className="mb-4">
-                    <h3 className="font-black text-slate-900 uppercase text-sm mb-0.5">{entry.name}</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">{entry.stateCode}</p>
-                  </div>
-                  <div className="pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black uppercase text-slate-400">
-                    <span>{entry.category}</span>
-                    <span>{new Date(entry.dateAdded).toLocaleDateString()}</span>
-                  </div>
-                  <div className="mt-4 flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || ''}); setCurrentView('FORM'); }} className="p-2 text-slate-300 hover:text-emerald-600">✏️</button>
-                    {(userRole === 'ZI' || (userRole === 'LGI' && lgaContext === entry.lga)) && (
-                      <button onClick={() => deleteReport(dbRef.current, entry.id)} className="p-2 text-slate-300 hover:text-red-500"><TrashIcon /></button>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {filteredEntries.length === 0 && (
-                <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase tracking-widest">No matching records</div>
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-24 text-center bg-white rounded-3xl border border-slate-100 shadow-inner">
+                <div className="inline-flex p-6 bg-slate-50 rounded-full mb-4 text-slate-200"><DashboardIcon /></div>
+                <h3 className="text-lg font-black text-slate-300 uppercase tracking-widest">No matching records found</h3>
+                <p className="text-slate-400 text-xs mt-2 uppercase">Adjust filters or add a new entry to begin</p>
+              </div>
+            )}
           </div>
         )}
 
         {currentView === 'FORM' && (
-          <div className="max-w-xl mx-auto space-y-6">
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-              <h2 className="text-2xl font-black uppercase text-slate-800 mb-6">{editingEntry ? 'Edit Entry' : 'New Report Entry'}</h2>
-              <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="max-w-2xl mx-auto animate-fade-in pb-12">
+            <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+              {/* Google Form Style Header */}
+              <div className="h-4 bg-emerald-800 w-full"></div>
+              <div className="p-8 space-y-8">
                 <div>
-                  <label className="text-xs font-black uppercase text-slate-400 mb-2 block">Corps Member Name</label>
-                  <input required className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
+                  <h2 className="text-3xl font-black uppercase text-slate-800 mb-2">{editingEntry ? 'Update Entry' : 'Weekly Status Submission'}</h2>
+                  <p className="text-slate-500 text-xs font-medium uppercase tracking-widest border-b pb-4 border-slate-100">Official NYSC Daura Secretariat Report Form</p>
                 </div>
-                <div>
-                  <label className="text-xs font-black uppercase text-slate-400 mb-2 block">State Code</label>
-                  <input required className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-                </div>
-                <div>
-                  <label className="text-xs font-black uppercase text-slate-400 mb-2 block">Status Category</label>
-                  <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ReportCategory})}>
-                    {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-black uppercase text-slate-400 mb-2 block">Additional Details</label>
-                  <textarea className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold h-32" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
-                </div>
-                <div className="flex gap-4 pt-4">
-                  <button type="submit" className="flex-1 bg-emerald-800 text-white p-4 rounded-xl font-black uppercase text-xs shadow-lg">Save Record</button>
-                  <button type="button" onClick={() => setCurrentView('DASHBOARD')} className="flex-1 bg-slate-100 text-slate-500 p-4 rounded-xl font-black uppercase text-xs">Cancel</button>
-                </div>
-              </form>
+
+                <form onSubmit={handleSubmit} className="space-y-8">
+                  {/* Form Questions Grouped in 'Cards' */}
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-sm font-black uppercase text-slate-700">Corps Member Full Name <span className="text-red-500">*</span></label>
+                      <input required className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} placeholder="e.g. ADEMOLA CHINEDU BELLO" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-black uppercase text-slate-700">State Code <span className="text-red-500">*</span></label>
+                      <input required className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} placeholder="KT/23C/1234" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-black uppercase text-slate-700">Report Category <span className="text-red-500">*</span></label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {Object.values(ReportCategory).map(c => (
+                          <label key={c} className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.category === c ? 'border-emerald-600 bg-emerald-50' : 'border-slate-100 bg-slate-50'}`}>
+                            <input type="radio" name="category" className="hidden" value={c} checked={formData.category === c} onChange={() => setFormData({...formData, category: c})} />
+                            <span className={`w-4 h-4 rounded-full border-2 mr-3 flex items-center justify-center ${formData.category === c ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
+                              {formData.category === c && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
+                            </span>
+                            <span className="text-xs font-black uppercase text-slate-700">{c}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-black uppercase text-slate-700">Incident Details / Remarks</label>
+                      <textarea className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-medium text-slate-800 focus:border-emerald-600 outline-none transition-all h-32" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} placeholder="Provide specific details about the incident, dates, hospitals, etc..." />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row gap-4 pt-4">
+                    <button type="submit" className="flex-1 bg-emerald-800 text-white p-5 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-emerald-900 transition-all">Submit Record</button>
+                    <button type="button" onClick={() => setCurrentView('DASHBOARD')} className="flex-1 bg-slate-100 text-slate-500 p-5 rounded-xl font-black uppercase text-xs tracking-[0.2em] hover:bg-slate-200 transition-all">Discard & Back</button>
+                  </div>
+                </form>
+              </div>
             </div>
+            <p className="text-center text-slate-400 text-[9px] font-black uppercase mt-6 tracking-[0.3em]">Confidential Government Submission</p>
           </div>
         )}
       </main>
 
-      <footer className="p-6 text-center text-slate-300 text-[9px] font-black uppercase tracking-[0.3em]">
-        NYSC KATSINA • {userRole} CONSOLE • INTERNAL USE ONLY
+      <footer className="p-8 text-center bg-white border-t border-slate-100">
+        <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.4em]">NYSC KATSINA • INTERNAL AUDIT PORTAL</p>
       </footer>
     </div>
   );
