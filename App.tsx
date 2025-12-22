@@ -112,6 +112,21 @@ const App: React.FC = () => {
     });
   }, [entries, searchQuery, filterCategory, startDate, endDate, userRole, lgaContext]);
 
+  const stats = useMemo(() => {
+    const counts = {
+      TOTAL: filteredEntries.length,
+      [ReportCategory.ABSCONDED]: 0,
+      [ReportCategory.SICK]: 0,
+      [ReportCategory.KIDNAPPED]: 0,
+      [ReportCategory.MISSING]: 0,
+      [ReportCategory.DECEASED]: 0,
+    };
+    filteredEntries.forEach(e => {
+      counts[e.category]++;
+    });
+    return counts;
+  }, [filteredEntries]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const target = pendingRole === 'ZI' ? 'ZI' : pendingLga;
@@ -155,22 +170,35 @@ const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const handleShare = async () => {
-    const text = `NYSC Status Report - ${new Date().toLocaleDateString()}\nRecords: ${filteredEntries.length}\nGenerated via Daura Portal.`;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'NYSC Report Export',
-          text: text,
-          url: window.location.href,
-        });
-      } catch (err) {
-        console.error("Share failed", err);
-      }
-    } else {
-      navigator.clipboard.writeText(text);
-      alert("Report summary copied to clipboard!");
+  const generateReportText = () => {
+    let text = `*NYSC STATUS REPORT - ${new Date().toLocaleDateString()}*\n`;
+    text += `Station: ${userRole === 'ZI' ? 'DAURA ZONAL HQ' : lgaContext}\n`;
+    text += `--------------------------\n`;
+    text += `*Summary:*\n`;
+    text += `- Total: ${stats.TOTAL}\n`;
+    Object.values(ReportCategory).forEach(cat => {
+      if (stats[cat] > 0) text += `- ${cat}: ${stats[cat]}\n`;
+    });
+    text += `--------------------------\n`;
+    
+    if (filteredEntries.length > 0) {
+      text += `*Recent Records:*\n`;
+      filteredEntries.slice(0, 10).forEach(e => {
+        text += `• ${e.name} (${e.stateCode}) - ${e.category}\n`;
+      });
+      if (filteredEntries.length > 10) text += `...and ${filteredEntries.length - 10} more.`;
     }
+    
+    return encodeURIComponent(text);
+  };
+
+  const handleShareWhatsApp = () => {
+    const text = generateReportText();
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  };
+
+  const handlePrintPDF = () => {
+    window.print();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -221,7 +249,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50">
+      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50 print:hidden">
         <div className="flex items-center gap-3 md:gap-4">
           <DashboardIcon />
           <div>
@@ -232,136 +260,182 @@ const App: React.FC = () => {
         <div className="flex gap-2">
           {currentView === 'DASHBOARD' && (
             <>
-              <button onClick={handleDownloadCSV} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all hidden md:block"><DownloadIcon /></button>
-              <button onClick={handleShare} title="Share Report" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><ShareIcon /></button>
+              {userRole === 'ZI' && (
+                <>
+                  <button onClick={handleDownloadCSV} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
+                  <button onClick={handlePrintPDF} title="Download PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
+                </>
+              )}
+              <button onClick={handleShareWhatsApp} title="Share to WhatsApp" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
+                <ShareIcon />
+                <span className="hidden md:inline text-[10px] font-black uppercase">WhatsApp</span>
+              </button>
             </>
           )}
           <button onClick={handleLogout} title="Logout" className="bg-white/10 hover:bg-red-500/30 p-2 md:p-3 rounded-xl transition-all"><LogOutIcon /></button>
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full p-4 md:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
         {currentView === 'DASHBOARD' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Header / Stats */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Status Overview</h2>
+          <div className="space-y-8 animate-fade-in">
+            {/* Summary Statistics Section */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col">
+                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Total Records</span>
+                <span className="text-3xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
+              </div>
+              {Object.values(ReportCategory).map(cat => (
+                <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100'}`}>
+                  <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${CATEGORY_COLORS[cat].split(' ')[1]}`}>{cat}</span>
+                  <span className={`text-3xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Header / Actions */}
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Live Dataset</h2>
               <div className="flex items-center gap-3">
-                 <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full border border-emerald-200">{filteredEntries.length} Active Records</span>
-                 <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-5 py-2.5 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 shadow-lg hover:bg-emerald-900 transition-all"><PlusIcon /> Add New</button>
+                 <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl hover:bg-emerald-900 transition-all active:scale-95"><PlusIcon /> New Entry</button>
               </div>
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4">
+            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 print:hidden">
               <div className="relative flex-1">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
-                <input type="text" placeholder="Search by name or state code..." className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 border-none outline-none text-sm font-medium focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
+                <input type="text" placeholder="Search name or state code..." className="w-full pl-14 pr-6 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
               </div>
               <div className="flex gap-2">
-                <select className="bg-slate-50 border-none rounded-xl px-4 py-3 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
+                <select className="bg-slate-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
                   <option value="ALL">All Categories</option>
                   {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button onClick={() => { setSearchQuery(''); setFilterCategory('ALL'); setStartDate(''); setEndDate(''); }} className="bg-slate-100 text-slate-400 px-4 py-3 rounded-xl hover:bg-slate-200 transition-all"><TrashIcon /></button>
+                <button onClick={() => { setSearchQuery(''); setFilterCategory('ALL'); setStartDate(''); setEndDate(''); }} className="bg-slate-100 text-slate-400 px-5 py-4 rounded-2xl hover:bg-slate-200 transition-all"><TrashIcon /></button>
               </div>
             </div>
 
-            {/* Content Area */}
+            {/* Record Grid */}
             {filteredEntries.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredEntries.map(entry => (
-                  <div key={entry.id} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm hover:shadow-xl transition-all group relative border-t-8" style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}>
-                    <div className="flex items-start justify-between mb-4">
-                      <div className={`p-3 rounded-xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
-                      <span className="text-[9px] font-black bg-slate-50 text-slate-400 px-2 py-1 rounded-md uppercase tracking-widest">{entry.lga}</span>
-                    </div>
-                    <div className="mb-4">
-                      <h3 className="font-black text-slate-900 uppercase text-base leading-tight mb-1">{entry.name}</h3>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{entry.stateCode}</p>
-                    </div>
-                    <div className="pt-4 border-t border-slate-50 flex justify-between items-center text-[9px] font-black uppercase text-slate-400">
-                      <span className="flex items-center gap-1.5"><FileTextIcon /> {entry.category}</span>
-                      <span>{new Date(entry.dateAdded).toLocaleDateString()}</span>
+                  <div key={entry.id} className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm hover:shadow-2xl transition-all group relative border-t-[12px] flex flex-col justify-between" style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}>
+                    <div>
+                      <div className="flex items-start justify-between mb-6">
+                        <div className={`p-4 rounded-2xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
+                        <span className="text-[10px] font-black bg-slate-50 text-slate-400 px-3 py-1.5 rounded-lg uppercase tracking-[0.2em]">{entry.lga}</span>
+                      </div>
+                      <div className="mb-6">
+                        <h3 className="font-black text-slate-900 uppercase text-lg leading-tight mb-2">{entry.name}</h3>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{entry.stateCode}</p>
+                      </div>
                     </div>
                     
-                    <div className="mt-4 pt-4 flex gap-2 justify-end border-t border-slate-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || ''}); setCurrentView('FORM'); }} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors">✏️ Edit</button>
-                      <button onClick={() => { if(confirm("Are you sure?")) deleteReport(dbRef.current, entry.id)}} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><TrashIcon /></button>
+                    <div className="space-y-4">
+                      {((entry as any).details) && (
+                        <p className="text-xs text-slate-500 italic line-clamp-2">"{(entry as any).details}"</p>
+                      )}
+                      <div className="pt-6 border-t border-slate-50 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+                        <span className="flex items-center gap-2 tracking-widest"><FileTextIcon /> {entry.category}</span>
+                        <span>{new Date(entry.dateAdded).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
+                        <button onClick={() => { setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || ''}); setCurrentView('FORM'); }} className="px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-all">Edit</button>
+                        <button onClick={() => { if(confirm("Permanently delete this record?")) deleteReport(dbRef.current, entry.id)}} className="px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">Delete</button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="py-24 text-center bg-white rounded-3xl border border-slate-100 shadow-inner">
-                <div className="inline-flex p-6 bg-slate-50 rounded-full mb-4 text-slate-200"><DashboardIcon /></div>
-                <h3 className="text-lg font-black text-slate-300 uppercase tracking-widest">No matching records found</h3>
-                <p className="text-slate-400 text-xs mt-2 uppercase">Adjust filters or add a new entry to begin</p>
+              <div className="py-32 text-center bg-white rounded-[3rem] border border-slate-100 shadow-inner">
+                <div className="inline-flex p-8 bg-slate-50 rounded-full mb-6 text-slate-200"><DashboardIcon /></div>
+                <h3 className="text-xl font-black text-slate-300 uppercase tracking-[0.3em]">Operational Silence</h3>
+                <p className="text-slate-400 text-xs mt-3 uppercase font-bold tracking-widest">No matching records found in this view</p>
               </div>
             )}
           </div>
         )}
 
         {currentView === 'FORM' && (
-          <div className="max-w-2xl mx-auto animate-fade-in pb-12">
-            <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-              {/* Google Form Style Header */}
-              <div className="h-4 bg-emerald-800 w-full"></div>
-              <div className="p-8 space-y-8">
+          <div className="max-w-2xl mx-auto animate-fade-in pb-20">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
+              <div className="h-5 bg-emerald-800 w-full"></div>
+              <div className="p-12 space-y-10">
                 <div>
-                  <h2 className="text-3xl font-black uppercase text-slate-800 mb-2">{editingEntry ? 'Update Entry' : 'Weekly Status Submission'}</h2>
-                  <p className="text-slate-500 text-xs font-medium uppercase tracking-widest border-b pb-4 border-slate-100">Official NYSC Daura Secretariat Report Form</p>
+                  <h2 className="text-4xl font-black uppercase text-slate-900 tracking-tighter mb-3">{editingEntry ? 'Update Record' : 'Official Entry'}</h2>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.4em] border-b pb-8 border-slate-100">National Youth Service Corps • Station Submission</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-8">
-                  {/* Form Questions Grouped in 'Cards' */}
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-black uppercase text-slate-700">Corps Member Full Name <span className="text-red-500">*</span></label>
-                      <input required className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} placeholder="e.g. ADEMOLA CHINEDU BELLO" />
+                <form onSubmit={handleSubmit} className="space-y-10">
+                  <div className="space-y-8">
+                    <div className="space-y-3">
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Corps Member Name <span className="text-red-500">*</span></label>
+                      <input required className="w-full p-5 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-black text-lg text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase placeholder:text-slate-200" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} placeholder="FULL NAME AS PER OFFICIAL REGISTER" />
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-black uppercase text-slate-700">State Code <span className="text-red-500">*</span></label>
-                      <input required className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} placeholder="KT/23C/1234" />
+                    <div className="space-y-3">
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">State Code <span className="text-red-500">*</span></label>
+                      <input required className="w-full p-5 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-black text-lg text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase placeholder:text-slate-200" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} placeholder="E.G. KT/24A/0001" />
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-black uppercase text-slate-700">Report Category <span className="text-red-500">*</span></label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-3">
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Incident Category <span className="text-red-500">*</span></label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {Object.values(ReportCategory).map(c => (
-                          <label key={c} className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.category === c ? 'border-emerald-600 bg-emerald-50' : 'border-slate-100 bg-slate-50'}`}>
+                          <label key={c} className={`flex items-center p-5 rounded-2xl border-2 cursor-pointer transition-all ${formData.category === c ? 'border-emerald-600 bg-emerald-50/30' : 'border-slate-50 bg-slate-50 hover:border-slate-200'}`}>
                             <input type="radio" name="category" className="hidden" value={c} checked={formData.category === c} onChange={() => setFormData({...formData, category: c})} />
-                            <span className={`w-4 h-4 rounded-full border-2 mr-3 flex items-center justify-center ${formData.category === c ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'}`}>
-                              {formData.category === c && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
-                            </span>
-                            <span className="text-xs font-black uppercase text-slate-700">{c}</span>
+                            <div className={`w-5 h-5 rounded-full border-2 mr-4 flex items-center justify-center ${formData.category === c ? 'border-emerald-600 bg-emerald-600 shadow-[0_0_10px_rgba(5,150,105,0.3)]' : 'border-slate-300'}`}>
+                              {formData.category === c && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                            </div>
+                            <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">{c}</span>
                           </label>
                         ))}
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-black uppercase text-slate-700">Incident Details / Remarks</label>
-                      <textarea className="w-full p-4 bg-slate-50 border-b-2 border-slate-200 rounded-lg font-medium text-slate-800 focus:border-emerald-600 outline-none transition-all h-32" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} placeholder="Provide specific details about the incident, dates, hospitals, etc..." />
+                    <div className="space-y-3">
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Case Particulars / Remarks</label>
+                      <textarea className="w-full p-6 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all h-40 placeholder:text-slate-200" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} placeholder="PROVIDE DETAILED ACCOUNT OF INCIDENT, RELEVANT DATES, AND CURRENT STATUS..." />
                     </div>
                   </div>
 
-                  <div className="flex flex-col md:flex-row gap-4 pt-4">
-                    <button type="submit" className="flex-1 bg-emerald-800 text-white p-5 rounded-xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-emerald-900 transition-all">Submit Record</button>
-                    <button type="button" onClick={() => setCurrentView('DASHBOARD')} className="flex-1 bg-slate-100 text-slate-500 p-5 rounded-xl font-black uppercase text-xs tracking-[0.2em] hover:bg-slate-200 transition-all">Discard & Back</button>
+                  <div className="flex flex-col md:flex-row gap-5 pt-6">
+                    <button type="submit" className="flex-[2] bg-emerald-800 text-white p-6 rounded-2xl font-black uppercase text-xs tracking-[0.3em] shadow-2xl hover:bg-emerald-900 active:scale-95 transition-all">Validate & Submit</button>
+                    <button type="button" onClick={() => setCurrentView('DASHBOARD')} className="flex-1 bg-slate-100 text-slate-500 p-6 rounded-2xl font-black uppercase text-xs tracking-[0.3em] hover:bg-slate-200 transition-all">Discard</button>
                   </div>
                 </form>
               </div>
             </div>
-            <p className="text-center text-slate-400 text-[9px] font-black uppercase mt-6 tracking-[0.3em]">Confidential Government Submission</p>
+            <p className="text-center text-slate-400 text-[9px] font-black uppercase mt-10 tracking-[0.5em] opacity-50">Confidential Administration Document</p>
           </div>
         )}
       </main>
 
-      <footer className="p-8 text-center bg-white border-t border-slate-100">
-        <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.4em]">NYSC KATSINA • INTERNAL AUDIT PORTAL</p>
+      <footer className="p-12 text-center bg-white border-t border-slate-100 print:hidden">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-500">
+          <p className="text-slate-900 text-[10px] font-black uppercase tracking-[0.5em]">NYSC KATSINA STATE HQ • AUDIT PORTAL</p>
+          <div className="flex gap-8">
+            <span className="text-[10px] font-black uppercase tracking-widest">Secure Link Established</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">© {new Date().getFullYear()}</span>
+          </div>
+        </div>
       </footer>
+
+      {/* Print Specific Layout Helper */}
+      <style>{`
+        @media print {
+          body { background: white !important; }
+          .print\\:hidden { display: none !important; }
+          main { padding: 0 !important; max-width: 100% !important; }
+          .rounded-[2.5rem], .rounded-[3rem] { border-radius: 0.5rem !important; }
+          .shadow-sm, .shadow-xl, .shadow-2xl { box-shadow: none !important; border: 1px solid #eee !important; }
+          header, footer { display: none !important; }
+          .grid { display: block !important; }
+          .grid > div { margin-bottom: 2rem; page-break-inside: avoid; }
+        }
+      `}</style>
     </div>
   );
 };
