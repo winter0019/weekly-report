@@ -8,18 +8,14 @@ import {
   orderBy,
   deleteDoc,
   doc,
-  limit,
+  updateDoc,
+  limit
 } from "firebase/firestore";
 import { CorpsMemberEntry } from "../types";
 
-let appInitialized = false;
-
 export function initFirebase(config: any) {
-  if (!appInitialized) {
-    initializeApp(config);
-    appInitialized = true;
-  }
-  return getFirestore();
+  const app = initializeApp(config);
+  return getFirestore(app);
 }
 
 export const subscribeToReports = (
@@ -38,13 +34,12 @@ export const subscribeToReports = (
     (snapshot) => {
       const entries = snapshot.docs.map((d) => ({
         id: d.id,
-        ...d.data(),
+        ...d.data()
       })) as CorpsMemberEntry[];
-
       callback(entries);
     },
     (error) => {
-      console.error("Firestore subscription error:", error);
+      console.error("Firestore Error:", error);
       errorCallback?.(error);
     }
   );
@@ -52,6 +47,10 @@ export const subscribeToReports = (
 
 export const addReport = async (db: any, entry: any) => {
   return await addDoc(collection(db, "nysc_reports"), entry);
+};
+
+export const updateReport = async (db: any, id: string, data: any) => {
+  return await updateDoc(doc(db, "nysc_reports", id), data);
 };
 
 export const deleteReport = async (db: any, id: string) => {
