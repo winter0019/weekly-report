@@ -3,59 +3,31 @@ import {
   getFirestore,
   collection,
   addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
   onSnapshot,
   query,
   orderBy,
-  deleteDoc,
-  doc,
-  updateDoc,
-  limit
 } from "firebase/firestore";
-import { CorpsMemberEntry } from "../types";
 
-export function initFirebase(config: any) {
+export const initFirebase = (config: any) => {
   const app = initializeApp(config);
   return getFirestore(app);
-}
-
-export const subscribeToReports = (
-  db: any,
-  callback: (entries: CorpsMemberEntry[]) => void,
-  errorCallback?: (error: any) => void
-) => {
-  const q = query(
-    collection(db, "nysc_reports"),
-    orderBy("dateAdded", "desc"),
-    limit(500)
-  );
-
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const entries = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as CorpsMemberEntry[];
-      callback(entries);
-    },
-    (error) => {
-      console.error("Firestore Error:", error);
-      errorCallback?.(error);
-    }
-  );
 };
 
-export const addReport = async (db: any, entry: any) => {
-  return addDoc(collection(db, "nysc_reports"), entry);
-};
-
-export const updateReport = async (db: any, id: string, updates: any) => {
-  return updateDoc(doc(db, "nysc_reports", id), {
-    ...updates,
-    updatedAt: new Date().toISOString(),
+export const subscribeToReports = (db: any, cb: any) => {
+  const q = query(collection(db, "nysc_reports"), orderBy("dateAdded", "desc"));
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 };
 
-export const deleteReport = async (db: any, id: string) => {
-  return deleteDoc(doc(db, "nysc_reports", id));
-};
+export const addReport = (db: any, data: any) =>
+  addDoc(collection(db, "nysc_reports"), data);
+
+export const updateReport = (db: any, id: string, data: any) =>
+  updateDoc(doc(db, "nysc_reports", id), data);
+
+export const deleteReport = (db: any, id: string) =>
+  deleteDoc(doc(db, "nysc_reports", id));
