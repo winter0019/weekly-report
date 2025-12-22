@@ -3,25 +3,14 @@ import {
   ReportCategory,
   CorpsMemberEntry,
   DauraLga,
-  UserRole,
+  UserRole
 } from "./types";
-import {
-  PlusIcon,
-  DownloadIcon,
-  ShareIcon,
-  LogOutIcon,
-  TrashIcon,
-  FileTextIcon,
-  SearchIcon,
-  DashboardIcon,
-} from "./components/Icons";
-import { summarizeReport } from "./services/geminiService";
 import {
   initFirebase,
   subscribeToReports,
   addReport,
   updateReport,
-  deleteReport,
+  deleteReport
 } from "./services/firebaseService";
 
 /* ================= CONFIG ================= */
@@ -35,201 +24,197 @@ const firebaseConfig = {
   appId: "1:225162027576:web:410acb6dc77acc0ecebccd",
 };
 
-const DAURA_ZONE_LGAS: DauraLga[] = [
-  "Daura",
-  "Baure",
-  "Zango",
-  "Sandamu",
-  "Mai’Adua",
-  "Mashi",
-  "Dutsi",
-  "Mani",
-  "Bindawa",
+const LGAS: DauraLga[] = [
+  "Daura","Baure","Zango","Sandamu","Mai’Adua","Mashi","Dutsi","Mani","Bindawa"
 ];
+
+const PINS: Record<string,string> = {
+  ZI:"0000", Daura:"1111", Baure:"2222", Zango:"3333", Sandamu:"4444",
+  "Mai’Adua":"5555", Mashi:"6666", Dutsi:"7777", Mani:"8888", Bindawa:"9999"
+};
+
+type View = "DASHBOARD" | "FORM";
 
 /* ================= APP ================= */
 
-type ViewMode = "DASHBOARD" | "FORM" | "SUMMARY";
-
 const App: React.FC = () => {
+  const [auth, setAuth] = useState(false);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [lga, setLga] = useState<DauraLga | null>(null);
+
   const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
-  const [editingEntry, setEditingEntry] = useState<CorpsMemberEntry | null>(null);
+  const [view, setView] = useState<View>("DASHBOARD");
 
-  const [currentView, setCurrentView] = useState<ViewMode>("DASHBOARD");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [editing, setEditing] = useState<CorpsMemberEntry | null>(null);
 
-  const [formData, setFormData] = useState<any>({
+  const [form, setForm] = useState<any>({
     name: "",
     stateCode: "",
-    category: ReportCategory.ABSCONDED,
+    category: ReportCategory.SICK,
     detail: "",
+    hospitalized: false
   });
 
   const dbRef = useRef<any>(null);
 
-  /* ============ FIREBASE ============ */
-
+  /* ===== INIT ===== */
   useEffect(() => {
+    if (!auth) return;
     dbRef.current = initFirebase(firebaseConfig);
     return subscribeToReports(dbRef.current, setEntries);
-  }, []);
+  }, [auth]);
 
-  /* ============ FILTER ============ */
+  /* ===== FILTER ===== */
+  const visible = useMemo(() => {
+    if (role === "ZI") return entries;
+    return entries.filter(e => e.lga === lga);
+  }, [entries, role, lga]);
 
-  const filteredEntries = useMemo(() => {
-    if (!searchQuery) return entries;
-    return entries.filter(
-      (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.stateCode.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [entries, searchQuery]);
+  /* ===== LOGIN ===== */
+  const login = (r: UserRole, lg: DauraLga | null, pin: string) => {
+    const key = r === "ZI" ? "ZI" : lg!;
+    if (PINS[key] !== pin) return alert("Wrong PIN");
 
-  /* ============ SUBMIT (ADD / UPDATE) ============ */
+    setAuth(true);
+    setRole(r);
+    setLga(lg);
+  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /* ===== SAVE / UPDATE ===== */
+  const save = async () => {
+    if (!lga) return;
 
     const payload = {
-      name: formData.name,
-      stateCode: formData.stateCode,
-      category: formData.category,
-      lga: editingEntry?.lga || "Mani",
-      dateAdded: editingEntry?.dateAdded || new Date().toISOString(),
-      detail: formData.detail,
+      name: form.name,
+      stateCode: form.stateCode,
+      lga,
+      category: form.category,
+      detail: form.detail,
+      hospitalized: form.hospitalized || false,
+      dateAdded: editing ? editing.dateAdded : new Date().toISOString()
     };
 
-    if (editingEntry) {
-      await updateReport(dbRef.current, editingEntry.id, payload);
+    if (editing) {
+      await updateReport(dbRef.current, editing.id, payload);
     } else {
       await addReport(dbRef.current, payload);
     }
 
-    setEditingEntry(null);
-    setFormData({ name: "", stateCode: "", category: ReportCategory.ABSCONDED, detail: "" });
-    setCurrentView("DASHBOARD");
+    setEditing(null);
+    setForm({ name:"", stateCode:"", category:ReportCategory.SICK, detail:"" });
+    setView("DASHBOARD");
   };
 
-  /* ============ EDIT ============ */
+  /* ===== UI ===== */
+  if (!auth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="bg-white p-8 rounded-xl shadow w-96 space-y-4">
+          <h2 className="font-bold text-lg text-center">NYSC LOGIN</h2>
 
-  const startEdit = (entry: CorpsMemberEntry) => {
-    setEditingEntry(entry);
-    setFormData({
-      name: entry.name,
-      stateCode: entry.stateCode,
-      category: entry.category,
-      detail: (entry as any).detail || "",
-    });
-    setCurrentView("FORM");
-  };
+          <select onChange={e => setRole(e.target.value as UserRole)} className="w-full p-2 border rounded">
+            <option value="">Role</option>
+            <option value="ZI">Zonal Inspector</option>
+            <option value="LGI">LGI</option>
+          </select>
 
-  /* ============ UI ============ */
+          {role === "LGI" && (
+            <select onChange={e => setLga(e.target.value as DauraLga)} className="w-full p-2 border rounded">
+              <option value="">Select LGA</option>
+              {LGAS.map(l => <option key={l}>{l}</option>)}
+            </select>
+          )}
+
+          <input id="pin" placeholder="PIN" className="w-full p-2 border rounded text-center" />
+
+          <button
+            onClick={() => login(role!, lga, (document.getElementById("pin") as HTMLInputElement).value)}
+            className="w-full bg-slate-900 text-white p-2 rounded"
+          >
+            Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 text-white p-4 flex justify-between">
-        <h1 className="font-bold">NYSC ZONAL HQ PORTAL</h1>
-        <LogOutIcon />
-      </header>
-
-      {currentView === "DASHBOARD" && (
-        <main className="p-6 space-y-4">
-          <div className="flex gap-2">
-            <input
-              className="border p-2 flex-1"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <button onClick={() => setCurrentView("FORM")}>
-              <PlusIcon /> Add
+    <div className="min-h-screen bg-slate-50 p-6">
+      {view === "DASHBOARD" && (
+        <>
+          <div className="flex justify-between mb-4">
+            <h1 className="font-bold text-xl">
+              {role === "ZI" ? "DAURA ZONAL HQ" : `${lga} LGI`}
+            </h1>
+            <button onClick={() => setView("FORM")} className="bg-emerald-600 text-white px-4 py-2 rounded">
+              + New / Update
             </button>
           </div>
 
-          <table className="w-full bg-white">
+          <table className="w-full bg-white rounded shadow">
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>Category</th>
-                <th>LGA</th>
-                <th>Date</th>
-                <th>Action</th>
+              <tr className="bg-slate-100">
+                <th>Name</th><th>Category</th><th>LGA</th><th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filteredEntries.map((e) => (
+              {visible.map(e => (
                 <tr key={e.id}>
                   <td>{e.name}</td>
                   <td>{e.category}</td>
                   <td>{e.lga}</td>
-                  <td>{new Date(e.dateAdded).toLocaleDateString()}</td>
-                  <td className="flex gap-2">
-                    <button onClick={() => startEdit(e)}>Edit</button>
-                    <button onClick={() => deleteReport(dbRef.current, e.id)}>
-                      <TrashIcon />
+                  <td>
+                    <button
+                      onClick={() => {
+                        setEditing(e);
+                        setForm(e as any);
+                        setView("FORM");
+                      }}
+                      className="text-blue-600 mr-2"
+                    >
+                      Edit
                     </button>
+                    {role === "ZI" && (
+                      <button onClick={() => deleteReport(dbRef.current, e.id)} className="text-red-600">
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </main>
+        </>
       )}
 
-      {currentView === "FORM" && (
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-w-xl">
-          <h2 className="font-bold">
-            {editingEntry ? "Update Record" : "New Record"}
-          </h2>
+      {view === "FORM" && (
+        <div className="max-w-xl bg-white p-6 rounded shadow">
+          <h2 className="font-bold mb-4">{editing ? "Update Record" : "New Record"}</h2>
 
-          <input
-            required
-            placeholder="Full Name"
-            className="border p-2 w-full"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          />
+          <input placeholder="Full Name" className="w-full p-2 border mb-2"
+            value={form.name} onChange={e => setForm({...form, name:e.target.value})} />
 
-          <input
-            required
-            placeholder="State Code"
-            className="border p-2 w-full"
-            value={formData.stateCode}
-            onChange={(e) =>
-              setFormData({ ...formData, stateCode: e.target.value })
-            }
-          />
+          <input placeholder="State Code" className="w-full p-2 border mb-2"
+            value={form.stateCode} onChange={e => setForm({...form, stateCode:e.target.value})} />
 
-          <select
-            className="border p-2 w-full"
-            value={formData.category}
-            onChange={(e) =>
-              setFormData({ ...formData, category: e.target.value })
-            }
-          >
-            {Object.values(ReportCategory).map((c) => (
-              <option key={c}>{c}</option>
-            ))}
+          <select className="w-full p-2 border mb-2"
+            value={form.category}
+            onChange={e => setForm({...form, category:e.target.value})}>
+            {Object.values(ReportCategory).map(c => <option key={c}>{c}</option>)}
           </select>
 
-          <textarea
-            className="border p-2 w-full"
-            placeholder="Details"
-            value={formData.detail}
-            onChange={(e) =>
-              setFormData({ ...formData, detail: e.target.value })
-            }
-          />
+          <textarea placeholder="Details" className="w-full p-2 border mb-4"
+            value={form.detail} onChange={e => setForm({...form, detail:e.target.value})} />
 
           <div className="flex gap-2">
-            <button type="submit" className="bg-slate-900 text-white p-2">
-              {editingEntry ? "Update" : "Save"}
+            <button onClick={save} className="bg-emerald-600 text-white px-4 py-2 rounded">
+              {editing ? "Update" : "Save"}
             </button>
-            <button type="button" onClick={() => setCurrentView("DASHBOARD")}>
+            <button onClick={() => setView("DASHBOARD")} className="px-4 py-2 border rounded">
               Cancel
             </button>
           </div>
-        </form>
+        </div>
       )}
     </div>
   );
