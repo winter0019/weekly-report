@@ -72,6 +72,7 @@ const App: React.FC = () => {
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<ReportCategory | 'ALL'>('ALL');
+  const [filterLga, setFilterLga] = useState<DauraLga | 'ALL'>('ALL');
   
   // Login States
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -103,14 +104,19 @@ const App: React.FC = () => {
   }, [isAuthenticated]);
 
   const filteredEntries = useMemo(() => {
+    // 1. First enforce security boundary
     let base = userRole === 'ZI' ? entries : entries.filter(e => e.lga === lgaContext);
+    
+    // 2. Apply dashboard filters
     return base.filter(e => {
       const matchesSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                            e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = filterCategory === 'ALL' || e.category === filterCategory;
-      return matchesSearch && matchesCategory;
+      const matchesLga = filterLga === 'ALL' || e.lga === filterLga;
+      
+      return matchesSearch && matchesCategory && matchesLga;
     });
-  }, [entries, searchQuery, filterCategory, userRole, lgaContext]);
+  }, [entries, searchQuery, filterCategory, filterLga, userRole, lgaContext]);
 
   const stats = useMemo(() => {
     const counts = {
@@ -186,13 +192,14 @@ const App: React.FC = () => {
   const shareViaWhatsApp = (dataToShare: CorpsMemberEntry[]) => {
     if (dataToShare.length === 0) return;
     let text = `*NYSC STATUS REPORT - ${new Date().toLocaleDateString()}*\n`;
-    text += `Station: ${userRole === 'ZI' ? 'DAURA ZONAL HQ' : lgaContext}\n`;
+    text += `Station(s): ${filterLga === 'ALL' ? 'DAURA ZONAL HQ (ALL)' : filterLga}\n`;
     text += `Total Records: ${dataToShare.length}\n`;
     text += `--------------------------\n`;
     
     dataToShare.forEach((e, idx) => {
       text += `*${idx + 1}. ${e.name}*\n`;
       text += `Code: ${e.stateCode}\n`;
+      text += `LGA: ${e.lga}\n`;
       text += `Status: ${e.category}\n`;
       if (e.category === ReportCategory.DECEASED && (e as any).dateOfDeath) {
         text += `Date of Death: ${(e as any).dateOfDeath}\n`;
@@ -286,11 +293,11 @@ const App: React.FC = () => {
         <div className="flex gap-2">
           {currentView === 'DASHBOARD' && (
             <>
-              <button onClick={() => downloadCSV(filteredEntries)} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
-              <button onClick={handlePrintAll} title="Print PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
-              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="Share to WhatsApp" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
+              <button onClick={() => downloadCSV(filteredEntries)} title="Download Current View CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
+              <button onClick={handlePrintAll} title="Print Current View PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
+              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="Share Current View Report" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
                 <ShareIcon />
-                <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Full Report</span>
+                <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Share View</span>
               </button>
             </>
           )}
@@ -304,7 +311,7 @@ const App: React.FC = () => {
             {/* Top Summary Stats */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 no-print">
               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col group hover:shadow-lg transition-all border-b-8 border-b-slate-900">
-                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Overall Total</span>
+                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Station Total</span>
                 <span className="text-4xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
               </div>
               {Object.values(ReportCategory).map(cat => (
@@ -320,7 +327,7 @@ const App: React.FC = () => {
               <div className="sticky top-20 z-40 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between animate-fade-in no-print">
                 <div className="flex items-center gap-4">
                   <span className="bg-emerald-500 text-white font-black px-4 py-2 rounded-full text-xs">{selectedIds.size}</span>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Selected</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Selected Records</span>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => shareViaWhatsApp(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
@@ -349,10 +356,23 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2">
+                {/* ZI-Only LGA Filter */}
+                {userRole === 'ZI' && (
+                  <select 
+                    className="bg-emerald-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-emerald-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                    value={filterLga}
+                    onChange={e => setFilterLga(e.target.value as any)}
+                  >
+                    <option value="ALL">All Stations (Zone)</option>
+                    {LGAS.map(lga => <option key={lga} value={lga}>{lga} Station</option>)}
+                  </select>
+                )}
+                
                 <select className="bg-slate-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
                   <option value="ALL">All Categories</option>
                   {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+                
                 <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:'', dateOfDeath: ''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl hover:bg-emerald-900 transition-all active:scale-95"><PlusIcon /> New Entry</button>
               </div>
             </div>
@@ -367,7 +387,6 @@ const App: React.FC = () => {
                     className={`bg-white rounded-[2.5rem] border p-8 shadow-sm hover:shadow-2xl transition-all group relative border-t-[12px] flex flex-col justify-between cursor-pointer ${selectedIds.has(entry.id) && !isPrintOnlySelection ? 'ring-4 ring-emerald-500 border-emerald-500' : 'border-slate-100'}`} 
                     style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}
                   >
-                    {/* Checkbox indicator */}
                     <div className={`absolute top-4 left-4 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all no-print ${selectedIds.has(entry.id) ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-slate-50 border-slate-200 text-transparent'}`}>
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
@@ -497,7 +516,6 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* Print-specific layout logic handled via CSS */}
       <style>{`
         @media print {
           body { background: white !important; }
