@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ReportCategory,
   CorpsMemberEntry,
@@ -6,11 +6,19 @@ import {
   UserRole,
 } from "./types";
 import {
+  PlusIcon,
   DownloadIcon,
   ShareIcon,
   LogOutIcon,
   TrashIcon,
+  FileTextIcon,
   SearchIcon,
+  AbscondedIcon,
+  SickIcon,
+  KidnappedIcon,
+  MissingIcon,
+  DeceasedIcon,
+  DashboardIcon,
 } from "./components/Icons";
 import { summarizeReport } from "./services/geminiService";
 import {
@@ -20,7 +28,7 @@ import {
   deleteReport,
 } from "./services/firebaseService";
 
-/* ================= CONFIG ================= */
+/* ================= FIREBASE ================= */
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -30,6 +38,8 @@ const firebaseConfig = {
   messagingSenderId: "225162027576",
   appId: "1:225162027576:web:410acb6dc77acc0ecebccd",
 };
+
+/* ================= CONSTANTS ================= */
 
 const DAURA_ZONE_LGAS: DauraLga[] = [
   "Daura",
@@ -56,59 +66,82 @@ const SECURITY_PINS: Record<string, string> = {
   Bindawa: "9999",
 };
 
-type ViewMode = "DASHBOARD" | "SUMMARY";
+const CATEGORY_ICONS: Record<string, JSX.Element> = {
+  [ReportCategory.ABSCONDED]: <AbscondedIcon />,
+  [ReportCategory.SICK]: <SickIcon />,
+  [ReportCategory.KIDNAPPED]: <KidnappedIcon />,
+  [ReportCategory.MISSING]: <MissingIcon />,
+  [ReportCategory.DECEASED]: <DeceasedIcon />,
+};
+
+type ViewMode = "DASHBOARD" | "FORM" | "SUMMARY";
 
 /* ================= APP ================= */
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    localStorage.getItem("daura_auth") === "true"
-  );
-  const [userRole, setUserRole] = useState<UserRole | null>(
+  const [auth, setAuth] = useState(localStorage.getItem("daura_auth") === "true");
+  const [role, setRole] = useState<UserRole | null>(
     localStorage.getItem("daura_role") as UserRole
   );
-  const [lgaContext, setLgaContext] = useState<DauraLga | null>(
+  const [lga, setLga] = useState<DauraLga | null>(
     localStorage.getItem("daura_lga") as DauraLga
   );
 
   const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentView, setCurrentView] = useState<ViewMode>("DASHBOARD");
-  const [summary, setSummary] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [view, setView] = useState<ViewMode>("DASHBOARD");
+  const [search, setSearch] = useState("");
+  const [summary, setSummary] = useState("");
+  const [loadingAI, setLoadingAI] = useState(false);
 
   const dbRef = useRef<any>(null);
 
-  /* ========== LOGIN STATE ========== */
-  const [roleInput, setRoleInput] = useState<UserRole | "">("");
-  const [lgaInput, setLgaInput] = useState<DauraLga | "">("");
-  const [pinInput, setPinInput] = useState("");
+  /* ================= FIRESTORE ================= */
 
-  /* ========== FIREBASE ========== */
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!auth) return;
 
     dbRef.current = initFirebase(firebaseConfig);
-    return subscribeToReports(dbRef.current, (data) => setEntries(data));
-  }, [isAuthenticated]);
+    return subscribeToReports(dbRef.current, setEntries);
+  }, [auth]);
 
-  /* ========== FILTER DATA ========== */
+  /* ================= FILTER ================= */
+
   const visibleEntries = useMemo(() => {
     const base =
-      userRole === "ZI"
-        ? entries
-        : entries.filter((e) => e.lga === lgaContext);
-
-    if (!searchQuery) return base;
+      role === "ZI" ? entries : entries.filter((e) => e.lga === lga);
 
     return base.filter(
       (e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.stateCode.toLowerCase().includes(searchQuery.toLowerCase())
+        e.name.toLowerCase().includes(search.toLowerCase()) ||
+        e.stateCode.toLowerCase().includes(search.toLowerCase())
     );
-  }, [entries, userRole, lgaContext, searchQuery]);
+  }, [entries, role, lga, search]);
 
-  /* ========== EXPORT / SHARE ========== */
+  /* ================= LOGIN ================= */
+
+  const login = (r: UserRole, l: DauraLga | null, pin: string) => {
+    const key = r === "ZI" ? "ZI" : l;
+    if (!key || SECURITY_PINS[key] !== pin) {
+      alert("Invalid PIN");
+      return;
+    }
+
+    localStorage.setItem("daura_auth", "true");
+    localStorage.setItem("daura_role", r);
+    if (l) localStorage.setItem("daura_lga", l);
+
+    setRole(r);
+    setLga(l);
+    setAuth(true);
+  };
+
+  const logout = () => {
+    localStorage.clear();
+    location.reload();
+  };
+
+  /* ================= EXPORT ================= */
+
   const exportCSV = () => {
     if (!visibleEntries.length) return;
 
@@ -129,92 +162,65 @@ const App: React.FC = () => {
 
     const a = document.createElement("a");
     a.href = encodeURI(csv);
-    a.download = `NYSC_${userRole === "ZI" ? "ZONE" : lgaContext}_REPORT.csv`;
+    a.download = `NYSC_${role === "ZI" ? "ZONE" : lga}_REPORT.csv`;
     a.click();
   };
 
-  const shareWhatsApp = () => {
-    const text = `NYSC ${userRole === "ZI" ? "DAURA ZONE" : lgaContext} REPORT\nTotal Records: ${visibleEntries.length}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
-  };
+  /* ================= AI ================= */
 
-  /* ========== LOGIN ========== */
-  const handleLogin = () => {
-    const key = roleInput === "ZI" ? "ZI" : lgaInput;
-    if (!key || SECURITY_PINS[key] !== pinInput) {
-      alert("Invalid PIN");
-      return;
-    }
-
-    localStorage.setItem("daura_auth", "true");
-    localStorage.setItem("daura_role", roleInput);
-    if (roleInput === "LGI") localStorage.setItem("daura_lga", lgaInput);
-
-    setIsAuthenticated(true);
-    setUserRole(roleInput as UserRole);
-    setLgaContext(roleInput === "LGI" ? (lgaInput as DauraLga) : null);
-  };
-
-  const handleLogout = () => {
-    localStorage.clear();
-    location.reload();
-  };
-
-  /* ========== AI SUMMARY ========== */
-  const handleSummarize = async () => {
-    setIsGenerating(true);
+  const generateSummary = async () => {
+    setLoadingAI(true);
     const text = await summarizeReport(
       visibleEntries,
-      userRole === "ZI" ? "Daura Zone" : `${lgaContext} LGA`
+      role === "ZI" ? "Daura Zone" : `${lga} LGA`
     );
     setSummary(text);
-    setCurrentView("SUMMARY");
-    setIsGenerating(false);
+    setView("SUMMARY");
+    setLoadingAI(false);
   };
 
-  /* ================= LOGIN UI ================= */
-  if (!isAuthenticated) {
+  /* ================= LOGIN SCREEN ================= */
+
+  if (!auth) {
+    const [r, setR] = useState<UserRole>("LGI");
+    const [l, setL] = useState<DauraLga>("Daura");
+    const [p, setP] = useState("");
+
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <div className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4">
-          <h2 className="font-bold text-center">NYSC WEEKLY REPORT</h2>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-white p-8 rounded-xl shadow w-96 space-y-4">
+          <h2 className="text-xl font-bold text-center">NYSC LOGIN</h2>
 
           <select
             className="w-full border p-2"
-            value={roleInput}
-            onChange={(e) => setRoleInput(e.target.value as UserRole)}
+            onChange={(e) => setR(e.target.value as UserRole)}
           >
-            <option value="">Select Role</option>
-            <option value="ZI">Zonal Inspector</option>
-            <option value="LGI">Local Govt Inspector</option>
+            <option value="LGI">LGI</option>
+            <option value="ZI">ZI</option>
           </select>
 
-          {roleInput === "LGI" && (
+          {r === "LGI" && (
             <select
               className="w-full border p-2"
-              value={lgaInput}
-              onChange={(e) => setLgaInput(e.target.value as DauraLga)}
+              onChange={(e) => setL(e.target.value as DauraLga)}
             >
-              <option value="">Select LGA</option>
-              {DAURA_ZONE_LGAS.map((lga) => (
-                <option key={lga} value={lga}>
-                  {lga}
-                </option>
+              {DAURA_ZONE_LGAS.map((x) => (
+                <option key={x}>{x}</option>
               ))}
             </select>
           )}
 
           <input
             type="password"
+            placeholder="PIN"
             className="w-full border p-2 text-center"
-            placeholder="Enter PIN"
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value)}
+            value={p}
+            onChange={(e) => setP(e.target.value)}
           />
 
           <button
-            onClick={handleLogin}
-            className="w-full bg-slate-900 text-white p-2 rounded"
+            className="w-full bg-emerald-600 text-white p-2"
+            onClick={() => login(r, r === "ZI" ? null : l, p)}
           >
             Login
           </button>
@@ -223,33 +229,34 @@ const App: React.FC = () => {
     );
   }
 
-  /* ================= DASHBOARD ================= */
+  /* ================= MAIN ================= */
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-slate-900 text-white p-4 flex justify-between">
-        <h1 className="font-bold">
-          {userRole === "ZI" ? "DAURA ZONAL HQ" : `${lgaContext} LGI TERMINAL`}
-        </h1>
-        <button onClick={handleLogout}>
+        <h1>{role === "ZI" ? "DAURA ZONAL HQ" : `${lga} LGI`}</h1>
+        <button onClick={logout}>
           <LogOutIcon />
         </button>
       </header>
 
-      {currentView === "DASHBOARD" && (
-        <main className="p-4 space-y-4">
+      {view === "DASHBOARD" && (
+        <main className="p-6 space-y-4">
           <div className="flex gap-2">
             <input
               className="border p-2 flex-1"
-              placeholder="Search…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-            <button onClick={exportCSV}><DownloadIcon /></button>
-            <button onClick={shareWhatsApp}><ShareIcon /></button>
-            <button onClick={() => window.print()}>Print</button>
-            <button onClick={handleSummarize} disabled={isGenerating}>
-              AI
+            <button onClick={exportCSV}>
+              <DownloadIcon />
             </button>
+            {role === "ZI" && (
+              <button onClick={generateSummary} disabled={loadingAI}>
+                <FileTextIcon />
+              </button>
+            )}
           </div>
 
           <table className="w-full bg-white border">
@@ -259,7 +266,7 @@ const App: React.FC = () => {
                 <th>Category</th>
                 <th>LGA</th>
                 <th>Date</th>
-                {userRole === "ZI" && <th>Action</th>}
+                {role === "ZI" && <th />}
               </tr>
             </thead>
             <tbody>
@@ -269,7 +276,7 @@ const App: React.FC = () => {
                   <td>{e.category}</td>
                   <td>{e.lga}</td>
                   <td>{new Date(e.dateAdded).toLocaleDateString()}</td>
-                  {userRole === "ZI" && (
+                  {role === "ZI" && (
                     <td>
                       <button onClick={() => deleteReport(dbRef.current, e.id)}>
                         <TrashIcon />
@@ -283,10 +290,10 @@ const App: React.FC = () => {
         </main>
       )}
 
-      {currentView === "SUMMARY" && summary && (
-        <div className="p-6 bg-white">
-          <pre>{summary}</pre>
-          <button onClick={() => setCurrentView("DASHBOARD")}>Back</button>
+      {view === "SUMMARY" && (
+        <div className="p-10 bg-white">
+          <pre className="whitespace-pre-wrap">{summary}</pre>
+          <button onClick={() => setView("DASHBOARD")}>Back</button>
         </div>
       )}
     </div>
