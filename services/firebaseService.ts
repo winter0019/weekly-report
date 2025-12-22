@@ -20,8 +20,7 @@ export function initFirebase(config: any) {
 
 export const subscribeToReports = (
   db: any,
-  callback: (entries: CorpsMemberEntry[]) => void,
-  errorCallback?: (error: any) => void
+  callback: (entries: CorpsMemberEntry[]) => void
 ) => {
   const q = query(
     collection(db, "nysc_reports"),
@@ -29,28 +28,22 @@ export const subscribeToReports = (
     limit(500)
   );
 
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const entries = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      })) as CorpsMemberEntry[];
-      callback(entries);
-    },
-    (error) => {
-      console.error("Firestore Error:", error);
-      errorCallback?.(error);
-    }
-  );
+  return onSnapshot(q, (snapshot) => {
+    const entries = snapshot.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as CorpsMemberEntry[];
+
+    callback(entries);
+  });
 };
 
 export const addReport = async (db: any, entry: any) => {
   return await addDoc(collection(db, "nysc_reports"), entry);
 };
 
-export const updateReport = async (db: any, id: string, data: any) => {
-  return await updateDoc(doc(db, "nysc_reports", id), data);
+export const updateReport = async (db: any, id: string, entry: any) => {
+  return await updateDoc(doc(db, "nysc_reports", id), entry);
 };
 
 export const deleteReport = async (db: any, id: string) => {
