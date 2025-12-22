@@ -28,13 +28,14 @@ export const initFirebase = (config: any): Firestore => {
       app = getApp();
     }
 
+    // Ensure we only initialize firestore once to avoid "service already registered" or "unavailable" errors
     if (!dbInstance) {
-      // getFirestore(app) registers the firestore service to the app instance
       dbInstance = getFirestore(app);
     }
     return dbInstance;
   } catch (error) {
     console.error("Firebase/Firestore Initialization Failed:", error);
+    // If we have an instance already, return it despite the error
     if (dbInstance) return dbInstance;
     throw error;
   }

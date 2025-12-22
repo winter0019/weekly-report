@@ -64,12 +64,14 @@ const App: React.FC = () => {
   const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
   const [currentView, setCurrentView] = useState<ViewMode>('DASHBOARD');
   const [editingEntry, setEditingEntry] = useState<CorpsMemberEntry | null>(null);
+  const [isPrintOnlySelection, setIsPrintOnlySelection] = useState(false);
+  
+  // Selection State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<ReportCategory | 'ALL'>('ALL');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   
   // Login States
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -78,7 +80,13 @@ const App: React.FC = () => {
   const [loginError, setLoginError] = useState(false);
 
   // Form States
-  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    stateCode: '', 
+    category: ReportCategory.SICK, 
+    details: '',
+    dateOfDeath: ''
+  });
 
   const dbRef = useRef<any>(null);
 
@@ -96,21 +104,13 @@ const App: React.FC = () => {
 
   const filteredEntries = useMemo(() => {
     let base = userRole === 'ZI' ? entries : entries.filter(e => e.lga === lgaContext);
-
     return base.filter(e => {
       const matchesSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                            e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
-      
       const matchesCategory = filterCategory === 'ALL' || e.category === filterCategory;
-      
-      const entryDate = new Date(e.dateAdded).getTime();
-      const start = startDate ? new Date(startDate).setHours(0,0,0,0) : null;
-      const end = endDate ? new Date(endDate).setHours(23,59,59,999) : null;
-      const matchesDate = (!start || entryDate >= start) && (!end || entryDate <= end);
-      
-      return matchesSearch && matchesCategory && matchesDate;
+      return matchesSearch && matchesCategory;
     });
-  }, [entries, searchQuery, filterCategory, startDate, endDate, userRole, lgaContext]);
+  }, [entries, searchQuery, filterCategory, userRole, lgaContext]);
 
   const stats = useMemo(() => {
     const counts = {
@@ -146,16 +146,29 @@ const App: React.FC = () => {
     location.reload();
   };
 
-  const handleDownloadCSV = () => {
-    if (filteredEntries.length === 0) return;
-    const headers = ["Name", "State Code", "LGA", "Category", "Date Added", "Details"];
-    const rows = filteredEntries.map(e => [
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) newSelected.delete(id);
+    else newSelected.add(id);
+    setSelectedIds(newSelected);
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === filteredEntries.length && filteredEntries.length > 0) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredEntries.map(e => e.id)));
+  };
+
+  const downloadCSV = (dataToExport: CorpsMemberEntry[]) => {
+    if (dataToExport.length === 0) return;
+    const headers = ["Name", "State Code", "LGA", "Category", "Date Added", "Details", "Date of Death"];
+    const rows = dataToExport.map(e => [
       e.name,
       e.stateCode,
       e.lga,
       e.category,
       new Date(e.dateAdded).toLocaleDateString(),
-      (e as any).details || ""
+      (e as any).details || "",
+      (e as any).dateOfDeath || "N/A"
     ].map(val => `"${val.toString().replace(/"/g, '""')}"`).join(","));
 
     const csvContent = [headers.join(","), ...rows].join("\n");
@@ -170,35 +183,40 @@ const App: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const generateReportText = () => {
+  const shareViaWhatsApp = (dataToShare: CorpsMemberEntry[]) => {
+    if (dataToShare.length === 0) return;
     let text = `*NYSC STATUS REPORT - ${new Date().toLocaleDateString()}*\n`;
     text += `Station: ${userRole === 'ZI' ? 'DAURA ZONAL HQ' : lgaContext}\n`;
+    text += `Total Records: ${dataToShare.length}\n`;
     text += `--------------------------\n`;
-    text += `*Summary:*\n`;
-    text += `- Total: ${stats.TOTAL}\n`;
-    Object.values(ReportCategory).forEach(cat => {
-      if (stats[cat] > 0) text += `- ${cat}: ${stats[cat]}\n`;
+    
+    dataToShare.forEach((e, idx) => {
+      text += `*${idx + 1}. ${e.name}*\n`;
+      text += `Code: ${e.stateCode}\n`;
+      text += `Status: ${e.category}\n`;
+      if (e.category === ReportCategory.DECEASED && (e as any).dateOfDeath) {
+        text += `Date of Death: ${(e as any).dateOfDeath}\n`;
+      }
+      if ((e as any).details) text += `Details: ${(e as any).details}\n`;
+      text += `--------------------------\n`;
     });
-    text += `--------------------------\n`;
     
-    if (filteredEntries.length > 0) {
-      text += `*Recent Records:*\n`;
-      filteredEntries.slice(0, 10).forEach(e => {
-        text += `• ${e.name} (${e.stateCode}) - ${e.category}\n`;
-      });
-      if (filteredEntries.length > 10) text += `...and ${filteredEntries.length - 10} more.`;
-    }
-    
-    return encodeURIComponent(text);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  const handleShareWhatsApp = () => {
-    const text = generateReportText();
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+  const handlePrintSelection = () => {
+    setIsPrintOnlySelection(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintOnlySelection(false);
+    }, 100);
   };
 
-  const handlePrintPDF = () => {
-    window.print();
+  const handlePrintAll = () => {
+    setIsPrintOnlySelection(false);
+    setTimeout(() => {
+      window.print();
+    }, 100);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -207,6 +225,7 @@ const App: React.FC = () => {
       ...formData,
       lga: lgaContext || 'Daura',
       dateAdded: editingEntry ? editingEntry.dateAdded : new Date().toISOString(),
+      ...(formData.category !== ReportCategory.DECEASED && { dateOfDeath: '' })
     };
     try {
       if (editingEntry) {
@@ -214,11 +233,18 @@ const App: React.FC = () => {
       } else {
         await addReport(dbRef.current, payload);
       }
-      setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
+      setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
       setEditingEntry(null);
       setCurrentView('DASHBOARD');
     } catch (err) { alert("Action failed."); }
   };
+
+  const selectedEntries = useMemo(() => 
+    filteredEntries.filter(e => selectedIds.has(e.id)), 
+    [filteredEntries, selectedIds]
+  );
+
+  const entriesToDisplay = isPrintOnlySelection ? selectedEntries : filteredEntries;
 
   if (!isAuthenticated) {
     return (
@@ -249,7 +275,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50 print:hidden">
+      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50 no-print">
         <div className="flex items-center gap-3 md:gap-4">
           <DashboardIcon />
           <div>
@@ -260,15 +286,11 @@ const App: React.FC = () => {
         <div className="flex gap-2">
           {currentView === 'DASHBOARD' && (
             <>
-              {userRole === 'ZI' && (
-                <>
-                  <button onClick={handleDownloadCSV} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
-                  <button onClick={handlePrintPDF} title="Download PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
-                </>
-              )}
-              <button onClick={handleShareWhatsApp} title="Share to WhatsApp" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
+              <button onClick={() => downloadCSV(filteredEntries)} title="Download CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
+              <button onClick={handlePrintAll} title="Print PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
+              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="Share to WhatsApp" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
                 <ShareIcon />
-                <span className="hidden md:inline text-[10px] font-black uppercase">WhatsApp</span>
+                <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Full Report</span>
               </button>
             </>
           )}
@@ -279,70 +301,116 @@ const App: React.FC = () => {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
         {currentView === 'DASHBOARD' && (
           <div className="space-y-8 animate-fade-in">
-            {/* Summary Statistics Section */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col">
-                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Total Records</span>
-                <span className="text-3xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
+            {/* Top Summary Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 no-print">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col group hover:shadow-lg transition-all border-b-8 border-b-slate-900">
+                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Overall Total</span>
+                <span className="text-4xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
               </div>
               {Object.values(ReportCategory).map(cat => (
-                <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100'}`}>
+                <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] border-b-8 ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100 opacity-50'}`} style={{ borderBottomColor: stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1].replace('text-', '') : undefined }}>
                   <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${CATEGORY_COLORS[cat].split(' ')[1]}`}>{cat}</span>
-                  <span className={`text-3xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
+                  <span className={`text-4xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
                 </div>
               ))}
             </div>
 
-            {/* Header / Actions */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
-              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Live Dataset</h2>
-              <div className="flex items-center gap-3">
-                 <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl hover:bg-emerald-900 transition-all active:scale-95"><PlusIcon /> New Entry</button>
+            {/* Selection Bar Actions */}
+            {selectedIds.size > 0 && (
+              <div className="sticky top-20 z-40 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between animate-fade-in no-print">
+                <div className="flex items-center gap-4">
+                  <span className="bg-emerald-500 text-white font-black px-4 py-2 rounded-full text-xs">{selectedIds.size}</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Selected</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => shareViaWhatsApp(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                    <ShareIcon /> WhatsApp
+                  </button>
+                  <button onClick={() => downloadCSV(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                    <DownloadIcon /> CSV
+                  </button>
+                  <button onClick={handlePrintSelection} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                    <FileTextIcon /> PDF
+                  </button>
+                  <button onClick={() => setSelectedIds(new Set())} className="bg-red-500/20 text-red-400 hover:bg-red-500/30 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest ml-2">Clear</button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Filter Bar */}
-            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 print:hidden">
-              <div className="relative flex-1">
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
-                <input type="text" placeholder="Search name or state code..." className="w-full pl-14 pr-6 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 no-print">
+              <div className="flex-1 flex gap-4">
+                 <button onClick={selectAll} className={`px-5 py-4 rounded-2xl text-[10px] font-black uppercase transition-all tracking-widest ${selectedIds.size === filteredEntries.length && filteredEntries.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                   {selectedIds.size === filteredEntries.length && filteredEntries.length > 0 ? 'Deselect All' : 'Select All'}
+                 </button>
+                 <div className="relative flex-1">
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
+                  <input type="text" placeholder="Search name or state code..." className="w-full pl-14 pr-6 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                </div>
               </div>
               <div className="flex gap-2">
                 <select className="bg-slate-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
                   <option value="ALL">All Categories</option>
                   {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button onClick={() => { setSearchQuery(''); setFilterCategory('ALL'); setStartDate(''); setEndDate(''); }} className="bg-slate-100 text-slate-400 px-5 py-4 rounded-2xl hover:bg-slate-200 transition-all"><TrashIcon /></button>
+                <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:'', dateOfDeath: ''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl hover:bg-emerald-900 transition-all active:scale-95"><PlusIcon /> New Entry</button>
               </div>
             </div>
 
             {/* Record Grid */}
-            {filteredEntries.length > 0 ? (
+            {entriesToDisplay.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredEntries.map(entry => (
-                  <div key={entry.id} className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-sm hover:shadow-2xl transition-all group relative border-t-[12px] flex flex-col justify-between" style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}>
+                {entriesToDisplay.map(entry => (
+                  <div 
+                    key={entry.id} 
+                    onClick={() => !isPrintOnlySelection && toggleSelect(entry.id)}
+                    className={`bg-white rounded-[2.5rem] border p-8 shadow-sm hover:shadow-2xl transition-all group relative border-t-[12px] flex flex-col justify-between cursor-pointer ${selectedIds.has(entry.id) && !isPrintOnlySelection ? 'ring-4 ring-emerald-500 border-emerald-500' : 'border-slate-100'}`} 
+                    style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}
+                  >
+                    {/* Checkbox indicator */}
+                    <div className={`absolute top-4 left-4 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all no-print ${selectedIds.has(entry.id) ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-slate-50 border-slate-200 text-transparent'}`}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+
                     <div>
-                      <div className="flex items-start justify-between mb-6">
+                      <div className="flex items-start justify-between mb-6 pl-6">
                         <div className={`p-4 rounded-2xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
                         <span className="text-[10px] font-black bg-slate-50 text-slate-400 px-3 py-1.5 rounded-lg uppercase tracking-[0.2em]">{entry.lga}</span>
                       </div>
-                      <div className="mb-6">
-                        <h3 className="font-black text-slate-900 uppercase text-lg leading-tight mb-2">{entry.name}</h3>
+                      <div className="mb-6 pl-1">
+                        <h3 className="font-black text-slate-900 uppercase text-lg leading-tight mb-2 tracking-tight">{entry.name}</h3>
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{entry.stateCode}</p>
                       </div>
                     </div>
                     
                     <div className="space-y-4">
+                      {((entry as any).dateOfDeath) && (
+                         <div className="text-[10px] font-black text-red-600 uppercase tracking-wider mb-2">DOD: {(entry as any).dateOfDeath}</div>
+                      )}
                       {((entry as any).details) && (
-                        <p className="text-xs text-slate-500 italic line-clamp-2">"{(entry as any).details}"</p>
+                        <p className="text-xs text-slate-500 italic line-clamp-3">"{(entry as any).details}"</p>
                       )}
                       <div className="pt-6 border-t border-slate-50 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
-                        <span className="flex items-center gap-2 tracking-widest"><FileTextIcon /> {entry.category}</span>
-                        <span>{new Date(entry.dateAdded).toLocaleDateString()}</span>
+                        <span className="flex items-center gap-2 tracking-widest font-bold"><FileTextIcon /> {entry.category}</span>
+                        <span className="opacity-60">{new Date(entry.dateAdded).toLocaleDateString()}</span>
                       </div>
-                      <div className="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity print:hidden">
-                        <button onClick={() => { setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || ''}); setCurrentView('FORM'); }} className="px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-all">Edit</button>
-                        <button onClick={() => { if(confirm("Permanently delete this record?")) deleteReport(dbRef.current, entry.id)}} className="px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">Delete</button>
+                      <div className="flex gap-2 justify-end no-print pt-2">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); shareViaWhatsApp([entry]); }} 
+                          title="Share to WhatsApp"
+                          className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all"
+                        >
+                          <ShareIcon />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); downloadCSV([entry]); }} 
+                          title="Download CSV"
+                          className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-slate-100 transition-all"
+                        >
+                          <DownloadIcon />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || '', dateOfDeath: (entry as any).dateOfDeath || ''}); setCurrentView('FORM'); }} className="px-4 py-3 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-all">Edit</button>
+                        <button onClick={(e) => { e.stopPropagation(); if(confirm("Permanently delete this record?")) deleteReport(dbRef.current, entry.id)}} className="px-4 py-3 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">Delete</button>
                       </div>
                     </div>
                   </div>
@@ -359,12 +427,12 @@ const App: React.FC = () => {
         )}
 
         {currentView === 'FORM' && (
-          <div className="max-w-2xl mx-auto animate-fade-in pb-20">
+          <div className="max-w-2xl mx-auto animate-fade-in pb-20 no-print">
             <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
               <div className="h-5 bg-emerald-800 w-full"></div>
               <div className="p-12 space-y-10">
                 <div>
-                  <h2 className="text-4xl font-black uppercase text-slate-900 tracking-tighter mb-3">{editingEntry ? 'Update Record' : 'Official Entry'}</h2>
+                  <h2 className="text-4xl font-black uppercase text-slate-900 tracking-tighter mb-3 leading-none">{editingEntry ? 'Update Record' : 'Official Entry'}</h2>
                   <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.4em] border-b pb-8 border-slate-100">National Youth Service Corps • Station Submission</p>
                 </div>
 
@@ -395,6 +463,13 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
+                    {formData.category === ReportCategory.DECEASED && (
+                      <div className="space-y-3 animate-fade-in">
+                        <label className="text-xs font-black uppercase tracking-widest text-red-700 ml-1">Date of Death <span className="text-red-500">*</span></label>
+                        <input type="date" required className="w-full p-5 bg-red-50 border-b-4 border-red-100 rounded-2xl font-black text-lg text-red-900 focus:border-red-600 outline-none transition-all" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
+                      </div>
+                    )}
+
                     <div className="space-y-3">
                       <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Case Particulars / Remarks</label>
                       <textarea className="w-full p-6 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all h-40 placeholder:text-slate-200" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} placeholder="PROVIDE DETAILED ACCOUNT OF INCIDENT, RELEVANT DATES, AND CURRENT STATUS..." />
@@ -408,12 +483,11 @@ const App: React.FC = () => {
                 </form>
               </div>
             </div>
-            <p className="text-center text-slate-400 text-[9px] font-black uppercase mt-10 tracking-[0.5em] opacity-50">Confidential Administration Document</p>
           </div>
         )}
       </main>
 
-      <footer className="p-12 text-center bg-white border-t border-slate-100 print:hidden">
+      <footer className="p-12 text-center bg-white border-t border-slate-100 no-print">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-500">
           <p className="text-slate-900 text-[10px] font-black uppercase tracking-[0.5em]">NYSC KATSINA STATE HQ • AUDIT PORTAL</p>
           <div className="flex gap-8">
@@ -423,17 +497,23 @@ const App: React.FC = () => {
         </div>
       </footer>
 
-      {/* Print Specific Layout Helper */}
+      {/* Print-specific layout logic handled via CSS */}
       <style>{`
         @media print {
           body { background: white !important; }
-          .print\\:hidden { display: none !important; }
-          main { padding: 0 !important; max-width: 100% !important; }
-          .rounded-[2.5rem], .rounded-[3rem] { border-radius: 0.5rem !important; }
-          .shadow-sm, .shadow-xl, .shadow-2xl { box-shadow: none !important; border: 1px solid #eee !important; }
-          header, footer { display: none !important; }
+          .no-print { display: none !important; }
+          main { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
           .grid { display: block !important; }
-          .grid > div { margin-bottom: 2rem; page-break-inside: avoid; }
+          .grid > div { 
+            margin-bottom: 2rem !important; 
+            page-break-inside: avoid !important; 
+            border: 2px solid #eee !important;
+            border-top: 10px solid #333 !important;
+            border-radius: 8px !important;
+            padding: 2rem !important;
+            box-shadow: none !important;
+          }
+          .animate-fade-in { animation: none !important; }
         }
       `}</style>
     </div>
