@@ -6,19 +6,11 @@ import {
   UserRole,
 } from "./types";
 import {
-  PlusIcon,
   DownloadIcon,
   ShareIcon,
   LogOutIcon,
   TrashIcon,
-  FileTextIcon,
   SearchIcon,
-  AbscondedIcon,
-  SickIcon,
-  KidnappedIcon,
-  MissingIcon,
-  DeceasedIcon,
-  DashboardIcon,
 } from "./components/Icons";
 import { summarizeReport } from "./services/geminiService";
 import {
@@ -28,7 +20,7 @@ import {
   deleteReport,
 } from "./services/firebaseService";
 
-/* ================== CONFIG ================== */
+/* ================= CONFIG ================= */
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -64,9 +56,9 @@ const SECURITY_PINS: Record<string, string> = {
   Bindawa: "9999",
 };
 
-/* ================== APP ================== */
+type ViewMode = "DASHBOARD" | "SUMMARY";
 
-type ViewMode = "DASHBOARD" | "FORM" | "SUCCESS" | "SUMMARY" | "STAT_REPORT";
+/* ================= APP ================= */
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(
@@ -80,15 +72,19 @@ const App: React.FC = () => {
   );
 
   const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
-  const dbRef = useRef<any>(null);
-
-  const [currentView, setCurrentView] = useState<ViewMode>("DASHBOARD");
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentView, setCurrentView] = useState<ViewMode>("DASHBOARD");
   const [summary, setSummary] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  /* ============ FIREBASE INIT ============ */
+  const dbRef = useRef<any>(null);
 
+  /* ========== LOGIN STATE ========== */
+  const [roleInput, setRoleInput] = useState<UserRole | "">("");
+  const [lgaInput, setLgaInput] = useState<DauraLga | "">("");
+  const [pinInput, setPinInput] = useState("");
+
+  /* ========== FIREBASE ========== */
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -96,49 +92,33 @@ const App: React.FC = () => {
     return subscribeToReports(dbRef.current, (data) => setEntries(data));
   }, [isAuthenticated]);
 
-  /* ============ FILTERED DATA ============ */
-
+  /* ========== FILTER DATA ========== */
   const visibleEntries = useMemo(() => {
-    let data =
+    const base =
       userRole === "ZI"
         ? entries
         : entries.filter((e) => e.lga === lgaContext);
 
-    if (!searchQuery) return data;
+    if (!searchQuery) return base;
 
-    return data.filter(
+    return base.filter(
       (e) =>
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         e.stateCode.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [entries, userRole, lgaContext, searchQuery]);
 
-  /* ============ EXPORT / SHARE ============ */
-
+  /* ========== EXPORT / SHARE ========== */
   const exportCSV = () => {
-    if (visibleEntries.length === 0) return;
+    if (!visibleEntries.length) return;
 
-    const headers = [
-      "Name",
-      "State Code",
-      "Category",
-      "LGA",
-      "Date",
-      "Details",
-    ];
-
+    const headers = ["Name", "State Code", "Category", "LGA", "Date"];
     const rows = visibleEntries.map((e) => [
       e.name,
       e.stateCode,
       e.category,
       e.lga,
       new Date(e.dateAdded).toLocaleDateString(),
-      (e as any).period ||
-        (e as any).illness ||
-        (e as any).dateKidnapped ||
-        (e as any).dateMissing ||
-        (e as any).dateOfDeath ||
-        "",
     ]);
 
     const csv =
@@ -147,36 +127,32 @@ const App: React.FC = () => {
       "\n" +
       rows.map((r) => r.join(",")).join("\n");
 
-    const link = document.createElement("a");
-    link.href = encodeURI(csv);
-    link.download = `NYSC_${userRole === "ZI" ? "ZONE" : lgaContext}_REPORT.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement("a");
+    a.href = encodeURI(csv);
+    a.download = `NYSC_${userRole === "ZI" ? "ZONE" : lgaContext}_REPORT.csv`;
+    a.click();
   };
 
   const shareWhatsApp = () => {
-    const text = `NYSC ${userRole === "ZI" ? "DAURA ZONE" : lgaContext} REPORT\n\nTotal Records: ${visibleEntries.length}`;
+    const text = `NYSC ${userRole === "ZI" ? "DAURA ZONE" : lgaContext} REPORT\nTotal Records: ${visibleEntries.length}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
-  /* ============ LOGIN ============ */
-
-  const handleLogin = (
-    role: UserRole,
-    lga: DauraLga | null,
-    pin: string
-  ) => {
-    const key = role === "ZI" ? "ZI" : lga;
-    if (!key || SECURITY_PINS[key] !== pin) return alert("Invalid PIN");
+  /* ========== LOGIN ========== */
+  const handleLogin = () => {
+    const key = roleInput === "ZI" ? "ZI" : lgaInput;
+    if (!key || SECURITY_PINS[key] !== pinInput) {
+      alert("Invalid PIN");
+      return;
+    }
 
     localStorage.setItem("daura_auth", "true");
-    localStorage.setItem("daura_role", role);
-    if (lga) localStorage.setItem("daura_lga", lga);
+    localStorage.setItem("daura_role", roleInput);
+    if (roleInput === "LGI") localStorage.setItem("daura_lga", lgaInput);
 
     setIsAuthenticated(true);
-    setUserRole(role);
-    setLgaContext(lga);
+    setUserRole(roleInput as UserRole);
+    setLgaContext(roleInput === "LGI" ? (lgaInput as DauraLga) : null);
   };
 
   const handleLogout = () => {
@@ -184,28 +160,72 @@ const App: React.FC = () => {
     location.reload();
   };
 
-  /* ============ AI SUMMARY ============ */
-
+  /* ========== AI SUMMARY ========== */
   const handleSummarize = async () => {
     setIsGenerating(true);
-    const result = await summarizeReport(
+    const text = await summarizeReport(
       visibleEntries,
       userRole === "ZI" ? "Daura Zone" : `${lgaContext} LGA`
     );
-    setSummary(result);
+    setSummary(text);
     setCurrentView("SUMMARY");
     setIsGenerating(false);
   };
 
-  /* ================== UI ================== */
-
+  /* ================= LOGIN UI ================= */
   if (!isAuthenticated) {
-    return <div className="p-10 text-center">LOGIN SCREEN (UNCHANGED)</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4">
+          <h2 className="font-bold text-center">NYSC WEEKLY REPORT</h2>
+
+          <select
+            className="w-full border p-2"
+            value={roleInput}
+            onChange={(e) => setRoleInput(e.target.value as UserRole)}
+          >
+            <option value="">Select Role</option>
+            <option value="ZI">Zonal Inspector</option>
+            <option value="LGI">Local Govt Inspector</option>
+          </select>
+
+          {roleInput === "LGI" && (
+            <select
+              className="w-full border p-2"
+              value={lgaInput}
+              onChange={(e) => setLgaInput(e.target.value as DauraLga)}
+            >
+              <option value="">Select LGA</option>
+              {DAURA_ZONE_LGAS.map((lga) => (
+                <option key={lga} value={lga}>
+                  {lga}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <input
+            type="password"
+            className="w-full border p-2 text-center"
+            placeholder="Enter PIN"
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value)}
+          />
+
+          <button
+            onClick={handleLogin}
+            className="w-full bg-slate-900 text-white p-2 rounded"
+          >
+            Login
+          </button>
+        </div>
+      </div>
+    );
   }
 
+  /* ================= DASHBOARD ================= */
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* HEADER */}
       <header className="bg-slate-900 text-white p-4 flex justify-between">
         <h1 className="font-bold">
           {userRole === "ZI" ? "DAURA ZONAL HQ" : `${lgaContext} LGI TERMINAL`}
@@ -215,28 +235,24 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      {/* DASHBOARD */}
       {currentView === "DASHBOARD" && (
-        <main className="p-6 space-y-4">
+        <main className="p-4 space-y-4">
           <div className="flex gap-2">
             <input
               className="border p-2 flex-1"
-              placeholder="Search..."
+              placeholder="Search…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <button onClick={exportCSV} className="btn">
-              <DownloadIcon /> CSV
-            </button>
-            <button onClick={() => window.print()} className="btn">
-              Print
-            </button>
-            <button onClick={shareWhatsApp} className="btn">
-              <ShareIcon /> WhatsApp
+            <button onClick={exportCSV}><DownloadIcon /></button>
+            <button onClick={shareWhatsApp}><ShareIcon /></button>
+            <button onClick={() => window.print()}>Print</button>
+            <button onClick={handleSummarize} disabled={isGenerating}>
+              AI
             </button>
           </div>
 
-          <table className="w-full bg-white">
+          <table className="w-full bg-white border">
             <thead>
               <tr>
                 <th>Name</th>
@@ -267,9 +283,8 @@ const App: React.FC = () => {
         </main>
       )}
 
-      {/* SUMMARY */}
       {currentView === "SUMMARY" && summary && (
-        <div className="p-10 bg-white">
+        <div className="p-6 bg-white">
           <pre>{summary}</pre>
           <button onClick={() => setCurrentView("DASHBOARD")}>Back</button>
         </div>
