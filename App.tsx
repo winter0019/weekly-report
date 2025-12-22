@@ -7,15 +7,10 @@ import {
 } from "./types";
 import {
   PlusIcon,
-  DownloadIcon,
-  ShareIcon,
-  LogOutIcon,
   TrashIcon,
-  FileTextIcon,
+  LogOutIcon,
   SearchIcon,
-  DashboardIcon,
 } from "./components/Icons";
-import { summarizeReport } from "./services/geminiService";
 import {
   initFirebase,
   subscribeToReports,
@@ -36,15 +31,7 @@ const firebaseConfig = {
 };
 
 const DAURA_ZONE_LGAS: DauraLga[] = [
-  "Daura",
-  "Baure",
-  "Zango",
-  "Sandamu",
-  "Mai’Adua",
-  "Mashi",
-  "Dutsi",
-  "Mani",
-  "Bindawa",
+  "Daura","Baure","Zango","Sandamu","Mai’Adua","Mashi","Dutsi","Mani","Bindawa"
 ];
 
 const SECURITY_PINS: Record<string, string> = {
@@ -60,14 +47,12 @@ const SECURITY_PINS: Record<string, string> = {
   Bindawa: "9999",
 };
 
-type ViewMode = "DASHBOARD" | "FORM" | "SUMMARY";
+type View = "DASHBOARD" | "FORM";
 
 /* ================= APP ================= */
 
 const App: React.FC = () => {
-  const [isAuth, setIsAuth] = useState(
-    localStorage.getItem("daura_auth") === "true"
-  );
+  const [auth, setAuth] = useState(localStorage.getItem("daura_auth") === "true");
   const [role, setRole] = useState<UserRole | null>(
     localStorage.getItem("daura_role") as UserRole
   );
@@ -76,9 +61,8 @@ const App: React.FC = () => {
   );
 
   const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
-  const [view, setView] = useState<ViewMode>("DASHBOARD");
+  const [view, setView] = useState<View>("DASHBOARD");
   const [search, setSearch] = useState("");
-
   const [editing, setEditing] = useState<CorpsMemberEntry | null>(null);
 
   const [form, setForm] = useState({
@@ -88,19 +72,17 @@ const App: React.FC = () => {
     details: "",
   });
 
-  const dbRef = useRef<any>(null);
+  const db = useRef<any>(null);
 
   /* ===== FIREBASE ===== */
-
   useEffect(() => {
-    if (!isAuth) return;
-    dbRef.current = initFirebase(firebaseConfig);
-    return subscribeToReports(dbRef.current, setEntries);
-  }, [isAuth]);
+    if (!auth) return;
+    db.current = initFirebase(firebaseConfig);
+    return subscribeToReports(db.current, setEntries);
+  }, [auth]);
 
   /* ===== FILTER ===== */
-
-  const visibleEntries = useMemo(() => {
+  const visible = useMemo(() => {
     const base =
       role === "ZI" ? entries : entries.filter((e) => e.lga === lga);
     return base.filter(
@@ -111,19 +93,17 @@ const App: React.FC = () => {
   }, [entries, role, lga, search]);
 
   /* ===== LOGIN ===== */
-
   const login = (r: UserRole, l: DauraLga | null, pin: string) => {
     const key = r === "ZI" ? "ZI" : l;
-    if (!key || SECURITY_PINS[key] !== pin) {
-      alert("Invalid PIN");
-      return;
-    }
+    if (!key || SECURITY_PINS[key] !== pin) return alert("Invalid PIN");
+
     localStorage.setItem("daura_auth", "true");
     localStorage.setItem("daura_role", r);
     if (l) localStorage.setItem("daura_lga", l);
+
     setRole(r);
     setLga(l);
-    setIsAuth(true);
+    setAuth(true);
   };
 
   const logout = () => {
@@ -132,10 +112,7 @@ const App: React.FC = () => {
   };
 
   /* ===== SAVE / UPDATE ===== */
-
   const save = async () => {
-    if (!lga && role !== "ZI") return;
-
     const payload = {
       name: form.name,
       stateCode: form.stateCode,
@@ -146,9 +123,9 @@ const App: React.FC = () => {
     };
 
     if (editing) {
-      await updateReport(dbRef.current, editing.id, payload);
+      await updateReport(db.current, editing.id, payload);
     } else {
-      await addReport(dbRef.current, payload);
+      await addReport(db.current, payload);
     }
 
     setForm({ name: "", stateCode: "", category: ReportCategory.SICK, details: "" });
@@ -156,53 +133,49 @@ const App: React.FC = () => {
     setView("DASHBOARD");
   };
 
-  /* ===== UI ===== */
-
-  if (!isAuth) {
+  /* ===== LOGIN UI ===== */
+  if (!auth) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-800 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-700 flex items-center justify-center p-6">
         <div className="bg-white rounded-3xl p-10 w-full max-w-md shadow-2xl">
-          <h1 className="text-2xl font-black text-center mb-2">
+          <h1 className="text-2xl font-black text-center">
             NYSC DAURA ZONAL HQ
           </h1>
           <p className="text-xs text-center text-gray-500 mb-8">
             Official Weekly Compliance Reporting System
           </p>
 
-          {/* SIMPLE LOGIN (you can reuse your existing UI) */}
-          {/* Call login(role, lga, pin) */}
+          {/* Simple demo login */}
+          <button
+            className="w-full bg-indigo-600 text-white py-3 rounded-xl"
+            onClick={() => login("ZI", null, "0000")}
+          >
+            Login as ZI (Demo)
+          </button>
         </div>
       </div>
     );
   }
 
+  /* ===== MAIN UI ===== */
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-slate-900 text-white p-4 flex justify-between">
-        <h1 className="font-bold">
-          {role === "ZI" ? "Zonal Inspector Dashboard" : `${lga} LGI Terminal`}
-        </h1>
-        <button onClick={logout}>
-          <LogOutIcon />
-        </button>
+        <h1>{role === "ZI" ? "Zonal Inspector Dashboard" : `${lga} LGI Terminal`}</h1>
+        <button onClick={logout}><LogOutIcon /></button>
       </header>
 
       {view === "DASHBOARD" && (
         <main className="p-6 space-y-4">
           <div className="flex gap-2">
+            <SearchIcon />
             <input
               className="border p-2 flex-1 rounded-xl"
               placeholder="Search..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <button
-              className="bg-indigo-600 text-white px-4 rounded-xl"
-              onClick={() => {
-                setEditing(null);
-                setView("FORM");
-              }}
-            >
+            <button onClick={() => setView("FORM")} className="bg-indigo-600 text-white px-4 rounded-xl">
               <PlusIcon />
             </button>
           </div>
@@ -218,29 +191,18 @@ const App: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {visibleEntries.map((e) => (
+              {visible.map((e) => (
                 <tr key={e.id}>
                   <td>{e.name}</td>
                   <td>{e.category}</td>
                   <td>{e.lga}</td>
                   <td>{new Date(e.dateAdded).toLocaleDateString()}</td>
                   <td className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setEditing(e);
-                        setForm({
-                          name: e.name,
-                          stateCode: e.stateCode,
-                          category: e.category,
-                          details: (e as any).details || "",
-                        });
-                        setView("FORM");
-                      }}
-                    >
+                    <button onClick={() => { setEditing(e); setForm(e as any); setView("FORM"); }}>
                       ✏️
                     </button>
                     {role === "ZI" && (
-                      <button onClick={() => deleteReport(dbRef.current, e.id)}>
+                      <button onClick={() => deleteReport(db.current, e.id)}>
                         <TrashIcon />
                       </button>
                     )}
@@ -258,37 +220,24 @@ const App: React.FC = () => {
             {editing ? "Update Record" : "New Record"}
           </h2>
 
-          <input
-            placeholder="Full Name"
-            className="input"
+          <input className="input" placeholder="Full Name"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <input
-            placeholder="State Code"
-            className="input"
-            value={form.stateCode}
-            onChange={(e) => setForm({ ...form, stateCode: e.target.value })}
-          />
+            onChange={(e) => setForm({ ...form, name: e.target.value })} />
 
-          <select
-            className="input"
+          <input className="input" placeholder="State Code"
+            value={form.stateCode}
+            onChange={(e) => setForm({ ...form, stateCode: e.target.value })} />
+
+          <select className="input"
             value={form.category}
-            onChange={(e) =>
-              setForm({ ...form, category: e.target.value as ReportCategory })
-            }
-          >
-            {Object.values(ReportCategory).map((c) => (
-              <option key={c}>{c}</option>
-            ))}
+            onChange={(e) => setForm({ ...form, category: e.target.value as ReportCategory })}>
+            {Object.values(ReportCategory).map(c => <option key={c}>{c}</option>)}
           </select>
 
-          <textarea
+          <textarea className="input h-28"
             placeholder="Details (illness, duration, date, cause)"
-            className="input h-28"
             value={form.details}
-            onChange={(e) => setForm({ ...form, details: e.target.value })}
-          />
+            onChange={(e) => setForm({ ...form, details: e.target.value })} />
 
           <div className="flex gap-3 mt-4">
             <button className="btn-primary" onClick={save}>
