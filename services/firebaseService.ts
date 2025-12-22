@@ -6,20 +6,34 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  onSnapshot,
   query,
   orderBy,
+  onSnapshot
 } from "firebase/firestore";
+import { CorpsMemberEntry } from "../types";
 
-export const initFirebase = (config: any) => {
-  const app = initializeApp(config);
+let app: any;
+
+export function initFirebase(config: any) {
+  if (!app) app = initializeApp(config);
   return getFirestore(app);
-};
+}
 
-export const subscribeToReports = (db: any, cb: any) => {
-  const q = query(collection(db, "nysc_reports"), orderBy("dateAdded", "desc"));
+export const subscribeToReports = (
+  db: any,
+  callback: (data: CorpsMemberEntry[]) => void
+) => {
+  const q = query(
+    collection(db, "nysc_reports"),
+    orderBy("dateAdded", "desc")
+  );
+
   return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const data = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    })) as CorpsMemberEntry[];
+    callback(data);
   });
 };
 
