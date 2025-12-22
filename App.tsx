@@ -8,7 +8,7 @@ import {
 import { 
   PlusIcon, 
   DownloadIcon, 
-  ShareIcon, 
+  WhatsAppIcon, 
   LogOutIcon, 
   TrashIcon, 
   FileTextIcon, 
@@ -66,21 +66,16 @@ const App: React.FC = () => {
   const [editingEntry, setEditingEntry] = useState<CorpsMemberEntry | null>(null);
   const [isPrintOnlySelection, setIsPrintOnlySelection] = useState(false);
   
-  // Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<ReportCategory | 'ALL'>('ALL');
   const [filterLga, setFilterLga] = useState<DauraLga | 'ALL'>('ALL');
   
-  // Login States
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
   const [pendingLga, setPendingLga] = useState<DauraLga | null>(null);
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
 
-  // Form States
   const [formData, setFormData] = useState({ 
     name: '', 
     stateCode: '', 
@@ -104,16 +99,12 @@ const App: React.FC = () => {
   }, [isAuthenticated]);
 
   const filteredEntries = useMemo(() => {
-    // 1. First enforce security boundary
     let base = userRole === 'ZI' ? entries : entries.filter(e => e.lga === lgaContext);
-    
-    // 2. Apply dashboard filters
     return base.filter(e => {
       const matchesSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                            e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = filterCategory === 'ALL' || e.category === filterCategory;
       const matchesLga = filterLga === 'ALL' || e.lga === filterLga;
-      
       return matchesSearch && matchesCategory && matchesLga;
     });
   }, [entries, searchQuery, filterCategory, filterLga, userRole, lgaContext]);
@@ -191,22 +182,40 @@ const App: React.FC = () => {
 
   const shareViaWhatsApp = (dataToShare: CorpsMemberEntry[]) => {
     if (dataToShare.length === 0) return;
-    let text = `*NYSC STATUS REPORT - ${new Date().toLocaleDateString()}*\n`;
-    text += `Station(s): ${filterLga === 'ALL' ? 'DAURA ZONAL HQ (ALL)' : filterLga}\n`;
-    text += `Total Records: ${dataToShare.length}\n`;
-    text += `--------------------------\n`;
-    
-    dataToShare.forEach((e, idx) => {
-      text += `*${idx + 1}. ${e.name}*\n`;
-      text += `Code: ${e.stateCode}\n`;
-      text += `LGA: ${e.lga}\n`;
-      text += `Status: ${e.category}\n`;
-      if (e.category === ReportCategory.DECEASED && (e as any).dateOfDeath) {
-        text += `Date of Death: ${(e as any).dateOfDeath}\n`;
-      }
-      if ((e as any).details) text += `Details: ${(e as any).details}\n`;
+    const dateStr = new Date().toLocaleDateString();
+    let text = `*NYSC STATUS REPORT - ${dateStr}*\n`;
+
+    if (userRole === 'ZI') {
+      // Zonal Office Report Template
+      text += `Station(s): ${filterLga === 'ALL' ? 'DAURA ZONAL HQ (ALL)' : filterLga}\n`;
+      text += `Total Records: ${dataToShare.length}\n`;
       text += `--------------------------\n`;
-    });
+      dataToShare.forEach((e, idx) => {
+        text += `*${idx + 1}. ${e.name.toLowerCase()}*\n`;
+        text += `Code: ${e.stateCode}\n`;
+        text += `LGA: ${e.lga}\n`;
+        text += `Status: ${e.category}\n`;
+        if (e.category === ReportCategory.DECEASED && (e as any).dateOfDeath) {
+          text += `Date of Death: ${(e as any).dateOfDeath}\n`;
+        }
+        text += `--------------------------\n`;
+      });
+    } else {
+      // Local Government Report Template
+      text += `Station: ${lgaContext}\n`;
+      text += `--------------------------\n`;
+      text += `*Summary:*\n`;
+      text += `- Total: ${dataToShare.length}\n`;
+      Object.values(ReportCategory).forEach(cat => {
+        const count = dataToShare.filter(d => d.category === cat).length;
+        if (count > 0) text += `- ${cat}: ${count}\n`;
+      });
+      text += `--------------------------\n`;
+      text += `*Recent Records:*\n`;
+      dataToShare.forEach(e => {
+        text += `• ${e.name.toLowerCase()} (${e.stateCode}) - ${e.category}\n`;
+      });
+    }
     
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -293,10 +302,10 @@ const App: React.FC = () => {
         <div className="flex gap-2">
           {currentView === 'DASHBOARD' && (
             <>
-              <button onClick={() => downloadCSV(filteredEntries)} title="Download Current View CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
-              <button onClick={handlePrintAll} title="Print Current View PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
-              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="Share Current View Report" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
-                <ShareIcon />
+              <button onClick={() => downloadCSV(filteredEntries)} title="Download View CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
+              <button onClick={handlePrintAll} title="Print View PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
+              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="WhatsApp Sharing" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
+                <WhatsAppIcon />
                 <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Share View</span>
               </button>
             </>
@@ -308,21 +317,24 @@ const App: React.FC = () => {
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
         {currentView === 'DASHBOARD' && (
           <div className="space-y-8 animate-fade-in">
-            {/* Top Summary Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 no-print">
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col group hover:shadow-lg transition-all border-b-8 border-b-slate-900">
-                <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Station Total</span>
-                <span className="text-4xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
-              </div>
-              {Object.values(ReportCategory).map(cat => (
-                <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] border-b-8 ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100 opacity-50'}`} style={{ borderBottomColor: stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1].replace('text-', '') : undefined }}>
-                  <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${CATEGORY_COLORS[cat].split(' ')[1]}`}>{cat}</span>
-                  <span className={`text-4xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
+            
+            {/* Summary Stats - ZI View Only */}
+            {userRole === 'ZI' && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 no-print">
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col group hover:shadow-lg transition-all border-b-8 border-b-slate-900">
+                  <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Station Total</span>
+                  <span className="text-4xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
                 </div>
-              ))}
-            </div>
+                {Object.values(ReportCategory).map(cat => (
+                  <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] border-b-8 ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100 opacity-50'}`} style={{ borderBottomColor: stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1].replace('text-', '') : undefined }}>
+                    <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${CATEGORY_COLORS[cat].split(' ')[1]}`}>{cat}</span>
+                    <span className={`text-4xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {/* Selection Bar Actions */}
+            {/* Sticky Actions Bar for Selections */}
             {selectedIds.size > 0 && (
               <div className="sticky top-20 z-40 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between animate-fade-in no-print">
                 <div className="flex items-center gap-4">
@@ -331,7 +343,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => shareViaWhatsApp(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                    <ShareIcon /> WhatsApp
+                    <WhatsAppIcon /> WhatsApp
                   </button>
                   <button onClick={() => downloadCSV(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
                     <DownloadIcon /> CSV
@@ -356,7 +368,6 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-2">
-                {/* ZI-Only LGA Filter */}
                 {userRole === 'ZI' && (
                   <select 
                     className="bg-emerald-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-emerald-800 outline-none focus:ring-2 focus:ring-emerald-500"
@@ -411,15 +422,15 @@ const App: React.FC = () => {
                       )}
                       <div className="pt-6 border-t border-slate-50 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
                         <span className="flex items-center gap-2 tracking-widest font-bold"><FileTextIcon /> {entry.category}</span>
-                        <span className="opacity-60">{new Date(entry.dateAdded).toLocaleDateString()}</span>
+                        <span className="opacity-60 font-bold">{new Date(entry.dateAdded).toLocaleDateString()}</span>
                       </div>
                       <div className="flex gap-2 justify-end no-print pt-2">
                         <button 
                           onClick={(e) => { e.stopPropagation(); shareViaWhatsApp([entry]); }} 
-                          title="Share to WhatsApp"
+                          title="WhatsApp Reporting"
                           className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all"
                         >
-                          <ShareIcon />
+                          <WhatsAppIcon />
                         </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); downloadCSV([entry]); }} 
