@@ -265,7 +265,7 @@ const App: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 animate-fade-in">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-md p-10 animate-fade-in">
           <div className="text-center mb-10">
             <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">NYSC DAURA</h1>
             <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Intelligence Access</p>
@@ -315,6 +315,17 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
+        {/* PDF / Print Heading - Explicitly identifying report source for readers */}
+        <div className="print-only mb-10 text-center border-b-4 border-slate-900 pb-8">
+          <h1 className="text-3xl font-black uppercase tracking-tighter">NYSC DAURA ZONAL OFFICE</h1>
+          <p className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500 mt-2">Weekly Status Report • Official Document</p>
+          <div className="mt-6 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
+            <span className="bg-slate-900 text-white px-3 py-1 rounded">Confidential Report</span>
+            <span>Generated: {new Date().toLocaleDateString()}</span>
+            <span>Origin Station: {userRole === 'ZI' ? 'Zonal HQ' : `${lgaContext} Station`}</span>
+          </div>
+        </div>
+
         {currentView === 'DASHBOARD' && (
           <div className="space-y-8 animate-fade-in">
             
