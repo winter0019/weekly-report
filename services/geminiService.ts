@@ -4,29 +4,26 @@ export async function generateDisciplinaryQuery(cmName: string, cmCode: string, 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
-    TASK: Generate an official, highly formal disciplinary query letter for an NYSC Corps Member defaulting on biometric clearance or duty.
+    TASK: Generate an official, highly formal disciplinary query letter for an NYSC Corps Member defaulting on biometric clearance or official duties.
     
     PERSONNEL DATA:
     NAME: ${cmName}
     STATE CODE: ${cmCode}
-    NATURE OF DEFAULT: ${reason}
+    INFRACTION: ${reason}
     
-    REGULATORY FRAMEWORK:
-    - NYSC Bye-Laws (2011 Revised)
+    REGULATORY CITATIONS:
+    - NYSC Bye-Laws (2011 Revised Decree)
     - Schedule 1, Section 1: Disciplinary code regarding absenteeism and neglect of duty.
-    - Section 4(2): Mandatory participation in all official activities including monthly clearance.
+    - Section 4(2): Mandatory participation in all official activities including monthly verification.
     
-    LETTER STRUCTURE:
-    1. LETTERHEAD: NYSC Secretariat Command.
-    2. REFERENCE: NYSC/SEC/DISC/VOL.I/102.
-    3. TO: The Corps Member (Full Name & State Code).
-    4. FROM: The Local Government Inspector (LGI).
-    5. SUBJECT: QUERY FOR GROSS MISCONDUCT AND NEGLECT OF OFFICIAL DUTY.
-    6. BODY: State clearly that the member failed to present themselves for biometric verification or was absent from duty without valid permission. Cite the specific Bye-Law section.
-    7. ULTIMATUM: Require a detailed written defense to reach the office within 24 hours of receipt.
-    8. CLOSING: Warning of further disciplinary action according to the decree.
+    LETTER CONTENT REQUIREMENTS:
+    1. FORMAL SALUTATION: Dear Corps Member.
+    2. OPENING: State clearly that the member's failure to present themselves for biometric verification or duty constitutes a serious breach of the National Service protocol.
+    3. CITATION: Explicitly mention that this act violates Schedule 1 of the NYSC Bye-Laws (2011 Revised).
+    4. DIRECTIVE: Require the member to provide a detailed written explanation/defense within 24 hours of receiving this query.
+    5. WARNING: Explicitly state that failure to provide a satisfactory defense will lead to further disciplinary actions as stipulated in the NYSC Decree, including extension of service year without pay or other penalties.
     
-    TONE: Grave, administrative, authoritative, and strictly professional.
+    TONE: Austere, administrative, authoritative, and strictly institutional. Do not use conversational language.
   `;
 
   try {
@@ -34,9 +31,9 @@ export async function generateDisciplinaryQuery(cmName: string, cmCode: string, 
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    return response.text || "Administrative Error: Could not generate formal documentation.";
+    return response.text || "SYSTEM ERROR: Failed to generate formal documentation.";
   } catch (err) {
-    console.error("Gemini Error:", err);
-    return "Official Notice: AI Service is temporarily unavailable. Please draft the query manually in accordance with Schedule 1.";
+    console.error("Gemini Documentation Error:", err);
+    return "ADMINISTRATIVE NOTICE: The AI-assisted documentation service is temporarily unavailable. Please refer to NYSC Bye-Laws (2011 Revised) Schedule 1 to manually draft this query.";
   }
 }
