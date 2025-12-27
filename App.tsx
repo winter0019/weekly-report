@@ -22,6 +22,7 @@ import {
   DeceasedIcon
 } from './components/Icons';
 import { initFirebase, subscribeToCollection, addData, updateData, deleteData } from './services/firebaseService';
+import { generateDisciplinaryQuery } from './services/geminiService';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -38,37 +39,6 @@ const SECURITY_PINS: Record<string, string> = {
   'Mai’Adua': '5555', 'Mashi': '6666', 'Dutsi': '7777', 'Mani': '8888', 'Bindawa': '9999'
 };
 
-// --- Export Utilities ---
-const exportToCSV = (filename: string, rows: any[]) => {
-  if (!rows.length) return;
-  const cleanRows = rows.map(({ id, _serverTimestamp, _lastModified, ...rest }) => rest);
-  const headers = Object.keys(cleanRows[0]).join(',');
-  const content = cleanRows.map(r => 
-    Object.values(r).map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
-  ).join('\n');
-  const csv = `${headers}\n${content}`;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute('download', `${filename}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-
-const useMultiSelect = (items: any[]) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
-  };
-  const clearSelection = () => setSelectedIds(new Set());
-  const selectAll = () => setSelectedIds(new Set(items.map(i => i.id)));
-  return { selectedIds, toggleSelect, clearSelection, selectAll };
-};
-
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
   const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
@@ -79,6 +49,9 @@ const App: React.FC = () => {
   const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
   const [cimEntries, setCimEntries] = useState<CIMClearance[]>([]);
   const [saedEntries, setSaedEntries] = useState<SAEDCenter[]>([]);
+  
+  const [activeQuery, setActiveQuery] = useState<{ content: string, cm: any } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
@@ -125,9 +98,7 @@ const App: React.FC = () => {
 
   const currentFilteredData = useMemo(() => {
     const filterFn = (items: any[]) => {
-      if (userRole === 'LGI') {
-        return items.filter(i => i.lga === lgaContext);
-      }
+      if (userRole === 'LGI') return items.filter(i => i.lga === lgaContext);
       if (ziStationFilter === 'all') return items;
       return items.filter(i => i.lga === ziStationFilter);
     };
@@ -139,347 +110,260 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, userRole, lgaContext, ziStationFilter]);
 
+  if (activeQuery) {
+    return (
+      <div className="min-h-screen bg-white p-8 md:p-16 flex flex-col items-center">
+        <div className="max-w-3xl w-full bg-white border border-slate-300 shadow-2xl p-12 relative overflow-hidden font-official text-slate-900 print-shadow-none">
+          <div className="text-center mb-10 border-b-2 border-slate-900 pb-6">
+            <h1 className="text-2xl font-bold uppercase tracking-widest mb-1">National Youth Service Corps</h1>
+            <h2 className="text-lg font-bold uppercase tracking-wider mb-2">Katsina State Secretariat</h2>
+            <p className="text-sm font-bold uppercase">{lgaContext || activeQuery.cm.lga} Local Government Office</p>
+          </div>
+          
+          <div className="whitespace-pre-wrap leading-relaxed text-sm">
+            {activeQuery.content}
+          </div>
+
+          <div className="mt-16 flex justify-between no-print pt-8 border-t border-slate-100">
+            <button onClick={() => setActiveQuery(null)} className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold uppercase text-xs hover:bg-slate-200 transition-all">Close Viewer</button>
+            <div className="flex gap-4">
+               <button onClick={() => window.print()} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold uppercase text-xs hover:bg-black transition-all shadow-lg flex items-center gap-2">
+                <FileTextIcon /> Print to PDF
+              </button>
+              <button 
+                onClick={() => shareToWhatsApp(`Disciplinary Query for ${activeQuery.cm.name}\n\n${activeQuery.content}`)}
+                className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-emerald-700 transition-all shadow-lg flex items-center gap-2"
+              >
+                <WhatsAppIcon /> Share WhatsApp
+              </button>
+            </div>
+          </div>
+        </div>
+        <p className="mt-8 text-xs text-slate-400 font-bold uppercase tracking-widest no-print italic">Generated via AI-Zonal Disciplinary Protocol</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <form onSubmit={handleLogin} className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md space-y-6 animate-fade-in">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">NYSC DAURA</h1>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">Division HQ Access</p>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <form onSubmit={handleLogin} className="bg-white p-12 rounded-[2.5rem] shadow-2xl w-full max-w-lg space-y-8 animate-fade-in border-4 border-emerald-800">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-emerald-800 rounded-full mx-auto mb-6 flex items-center justify-center shadow-xl">
+              <span className="text-white font-black text-2xl">NYSC</span>
+            </div>
+            <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter mb-2">Zonal Portal</h1>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-[0.2em]">Administrative Command Access</p>
           </div>
-          <div className="space-y-4">
-            <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={e => {
-              const val = e.target.value;
-              setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
-            }}>
-              <option value="">Select Division/Station...</option>
-              <option value="ZI">Zonal Office (ZI)</option>
-              {LGAS.map(l => <option key={l} value={l}>{l} Station (LGI)</option>)}
-            </select>
-            <input type="password" required placeholder="Security PIN" className="w-full p-4 bg-slate-50 border rounded-2xl text-center text-3xl font-black focus:ring-2 focus:ring-emerald-500 outline-none" value={pin} onChange={e => setPin(e.target.value)} />
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase text-slate-500 ml-2">Assigned Command</label>
+              <select required className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-800 focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-600 outline-none transition-all appearance-none" onChange={e => {
+                const val = e.target.value;
+                setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
+              }}>
+                <option value="">Select Station...</option>
+                <option value="ZI">Zonal Inspector (ZI) - Daura HQ</option>
+                {LGAS.map(l => <option key={l} value={l}>{l} Station (LGI Office)</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase text-slate-500 ml-2">Security Credential</label>
+              <input type="password" required placeholder="PIN Code" className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl text-center text-3xl font-black tracking-[0.5em] focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-600 outline-none transition-all" value={pin} onChange={e => setPin(e.target.value)} />
+            </div>
           </div>
-          {loginError && <p className="text-red-600 text-xs font-black text-center uppercase tracking-widest">Access Denied: Invalid PIN</p>}
-          <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-xl hover:bg-emerald-900 transition-all active:scale-95">Authenticate Division</button>
+          {loginError && <p className="text-red-600 text-xs font-black text-center uppercase tracking-widest bg-red-50 py-3 rounded-xl">Authorization Failed: Invalid PIN</p>}
+          <button className="w-full bg-emerald-800 text-white p-6 rounded-2xl font-black uppercase shadow-2xl hover:bg-emerald-900 transition-all active:scale-95 text-lg">Grant Access</button>
         </form>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-inter">
-      <header className="bg-slate-900 text-white p-6 shadow-xl flex justify-between items-center no-print">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-emerald-600 rounded-2xl shadow-lg shadow-emerald-500/20"><DashboardIcon /></div>
+    <div className="min-h-screen bg-slate-100 flex flex-col font-inter text-slate-900">
+      <header className="bg-emerald-900 text-white p-6 shadow-2xl flex justify-between items-center no-print sticky top-0 z-50">
+        <div className="flex items-center gap-5">
+          <div className="p-3 bg-emerald-600 rounded-2xl shadow-lg border border-emerald-400/30"><DashboardIcon /></div>
           <div>
-            <h1 className="text-lg font-black uppercase tracking-tight">{userRole === 'ZI' ? 'DAURA ZONAL HQ' : `${lgaContext} STATION`}</h1>
-            <p className="text-xs font-bold text-slate-400 tracking-[0.2em] uppercase">National Youth Service Corps</p>
+            <h1 className="text-xl font-black uppercase tracking-tight leading-none mb-1">{userRole === 'ZI' ? 'DAURA ZONAL HQ COMMAND' : `${lgaContext?.toUpperCase()} STATION OFFICE`}</h1>
+            <p className="text-xs font-bold text-emerald-300/80 tracking-widest uppercase">Secretariat Information Management System</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {userRole === 'ZI' ? (
-            <div className="mr-4">
-               <select 
-                className="bg-slate-800 border-none rounded-xl px-4 py-2 text-xs font-black uppercase text-emerald-400 outline-none focus:ring-2 focus:ring-emerald-500"
-                value={ziStationFilter}
-                onChange={(e) => setZiStationFilter(e.target.value)}
-              >
-                <option value="all">Global View (All LGAs)</option>
-                {LGAS.map(l => <option key={l} value={l}>{l.toUpperCase()} STATION</option>)}
-              </select>
-            </div>
-          ) : (
-            <div className="mr-4 hidden md:block">
-              <span className="text-xs font-black text-emerald-400 uppercase tracking-widest bg-emerald-950 px-3 py-1.5 rounded-lg">STATION: {lgaContext?.toUpperCase()}</span>
-            </div>
+        <div className="flex items-center gap-4">
+          {userRole === 'ZI' && (
+            <select 
+              className="bg-emerald-950 border-emerald-800 border-2 rounded-2xl px-5 py-3 text-xs font-black uppercase text-emerald-400 outline-none hover:border-emerald-500 transition-all cursor-pointer"
+              value={ziStationFilter}
+              onChange={(e) => setZiStationFilter(e.target.value)}
+            >
+              <option value="all">Global Zonal View (All LGAs)</option>
+              {LGAS.map(l => <option key={l} value={l}>{l.toUpperCase()} STATION COMMAND</option>)}
+            </select>
           )}
-          <div className="hidden md:flex flex-col items-end mr-4">
-            <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">{userRole} AUTHENTICATED</span>
-            <span className="text-xs text-slate-300 font-bold">{new Date().toLocaleDateString()}</span>
-          </div>
-          <button onClick={handleLogout} className="p-3 bg-white/10 rounded-xl hover:bg-red-500/20 transition-all"><LogOutIcon /></button>
+          <button onClick={handleLogout} className="p-4 bg-white/10 rounded-2xl hover:bg-red-500/30 transition-all border border-white/5"><LogOutIcon /></button>
         </div>
       </header>
 
-      <nav className="bg-white border-b p-2 md:p-4 flex justify-center gap-2 md:gap-4 no-print overflow-x-auto">
+      <nav className="bg-white border-b-4 border-emerald-800/10 p-4 md:p-6 flex justify-center gap-4 no-print overflow-x-auto shadow-sm">
         {[
-          { id: 'CWHS', label: 'Corps Welfare (CW&HS)' },
-          { id: 'CIM', label: 'Inspection (CIM)' },
-          { id: 'SAED', label: 'SAED Division' }
+          { id: 'CWHS', label: 'Welfare (CW&HS)', sub: 'Personnel Status' },
+          { id: 'CIM', label: 'Clearance (CIM)', sub: 'Biometric Audits' },
+          { id: 'SAED', label: 'SAED Program', sub: 'Skill Registry' }
         ].map(d => (
           <button 
             key={d.id}
             onClick={() => setDivision(d.id as Division)}
-            className={`division-folder px-4 md:px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all whitespace-nowrap ${division === d.id ? `bg-emerald-800 text-white shadow-xl shadow-emerald-800/20 active` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+            className={`division-folder px-10 py-5 rounded-3xl text-sm font-black uppercase tracking-widest transition-all whitespace-nowrap group ${division === d.id ? `bg-emerald-800 text-white active` : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
           >
-            {d.label}
+            <div className="flex flex-col items-center">
+              <span>{d.label}</span>
+              <span className={`text-[9px] font-bold opacity-50 ${division === d.id ? 'text-emerald-300' : 'text-slate-400'}`}>{d.sub}</span>
+            </div>
           </button>
         ))}
       </nav>
 
-      {/* --- Print Title for PDF --- */}
-      <div className="hidden print:block p-8 border-b-2 border-slate-900 mb-8">
-        <h1 className="text-3xl font-black uppercase">National Youth Service Corps - {userRole === 'ZI' ? 'Zonal Office Daura' : `${lgaContext} Station`}</h1>
-        <p className="text-xl font-bold uppercase mt-2">Formal Division Report: {division}</p>
-        <p className="text-sm mt-1">Generated on: {new Date().toLocaleString()}</p>
-      </div>
-
-      <section className="max-w-7xl mx-auto w-full px-4 md:px-8 pt-8 no-print animate-fade-in">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <SummaryCard 
-            title="Total Records" 
-            value={currentFilteredData.cwhs.length + currentFilteredData.cim.length + currentFilteredData.saed.length}
-            subtitle={userRole === 'ZI' && ziStationFilter === 'all' ? "Zonal Command Strength" : `${userRole === 'ZI' ? ziStationFilter : lgaContext} Local Stats`}
-            icon={<DashboardIcon />}
-            color="bg-slate-900"
+      <main className="flex-1 max-w-[1400px] mx-auto w-full p-4 md:p-10 space-y-10">
+        {division === 'CWHS' && (
+          <CWHSModule 
+            entries={currentFilteredData.cwhs} 
+            userRole={userRole!} 
+            lga={lgaContext!} 
+            db={dbRef.current} 
+            onShare={shareToWhatsApp} 
           />
-          {division === 'CWHS' && (
-            <>
-              <SummaryCard 
-                title="Sick/Hospitalized" 
-                value={currentFilteredData.cwhs.filter(i => i.category === ReportCategory.SICK).length}
-                subtitle="Personnel Under Medical Care"
-                icon={<SickIcon />}
-                color="bg-blue-600"
-              />
-              <SummaryCard 
-                title="Deceased" 
-                value={currentFilteredData.cwhs.filter(i => i.category === ReportCategory.DECEASED).length}
-                subtitle="Total Mortality Record"
-                icon={<DeceasedIcon />}
-                color="bg-slate-700"
-              />
-              <SummaryCard 
-                title="Critical Incidents" 
-                value={currentFilteredData.cwhs.filter(i => [ReportCategory.ABSCONDED, ReportCategory.KIDNAPPED, ReportCategory.MISSING].includes(i.category)).length}
-                subtitle="High Priority Cases"
-                icon={<AbscondedIcon />}
-                color="bg-red-600"
-              />
-            </>
-          )}
-          {division === 'CIM' && (
-            <>
-              <SummaryCard 
-                title="Avg Success Rate" 
-                value={`${Math.round(currentFilteredData.cim.length ? currentFilteredData.cim.reduce((acc, curr) => acc + (curr.clearedCount / (curr.maleCount + curr.femaleCount) * 100), 0) / currentFilteredData.cim.length : 0)}%`}
-                subtitle="Clearance Efficiency"
-                icon={<FileTextIcon />}
-                color="bg-emerald-600"
-              />
-              <SummaryCard 
-                title="Audit Logs" 
-                value={currentFilteredData.cim.length}
-                subtitle="Monthly Submissions"
-                icon={<SearchIcon />}
-                color="bg-amber-600"
-              />
-              <SummaryCard 
-                title="Flagged Personnel" 
-                value={currentFilteredData.cim.reduce((acc, curr) => acc + (curr.unclearedList?.length || 0), 0)}
-                subtitle="Total Disciplinary Cases"
-                icon={<TrashIcon />}
-                color="bg-slate-800"
-              />
-            </>
-          )}
-          {division === 'SAED' && (
-            <>
-              <SummaryCard 
-                title="Active Centers" 
-                value={currentFilteredData.saed.length}
-                subtitle="Skill Acquisition Hubs"
-                icon={<SearchIcon />}
-                color="bg-purple-600"
-              />
-              <SummaryCard 
-                title="Total Trainees" 
-                value={currentFilteredData.saed.reduce((acc, curr) => acc + curr.cmCount, 0)}
-                subtitle="Corps Members Enrolled"
-                icon={<PlusIcon />}
-                color="bg-blue-600"
-              />
-              <SummaryCard 
-                title="Total Fees" 
-                value={`₦${currentFilteredData.saed.reduce((acc, curr) => acc + curr.fee, 0).toLocaleString()}`}
-                subtitle="Aggregate Revenue"
-                icon={<DownloadIcon />}
-                color="bg-emerald-600"
-              />
-            </>
-          )}
-        </div>
-      </section>
-
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
-        {division === 'CWHS' && <CWHSModule entries={currentFilteredData.cwhs} userRole={userRole!} lga={lgaContext!} db={dbRef.current} onShare={shareToWhatsApp} />}
-        {division === 'CIM' && <CIMModule entries={currentFilteredData.cim} userRole={userRole!} lga={lgaContext!} db={dbRef.current} onShare={shareToWhatsApp} />}
-        {division === 'SAED' && <SAEDModule entries={currentFilteredData.saed} userRole={userRole!} lga={lgaContext!} db={dbRef.current} onShare={shareToWhatsApp} />}
+        )}
+        {division === 'CIM' && (
+          <CIMModule 
+            entries={currentFilteredData.cim} 
+            userRole={userRole!} 
+            lga={lgaContext!} 
+            db={dbRef.current} 
+            onShare={shareToWhatsApp}
+            onGenerateQuery={async (cm, lga) => {
+              setIsGenerating(true);
+              const content = await generateDisciplinaryQuery(cm.name, cm.code, cm.reason);
+              setActiveQuery({ content, cm: { ...cm, lga } });
+              setIsGenerating(false);
+            }}
+            loading={isGenerating}
+          />
+        )}
+        {division === 'SAED' && (
+          <SAEDModule 
+            entries={currentFilteredData.saed} 
+            userRole={userRole!} 
+            lga={lgaContext!} 
+            db={dbRef.current} 
+            onShare={shareToWhatsApp} 
+          />
+        )}
       </main>
 
-      <footer className="p-8 text-center text-slate-500 no-print">
-        <p className="text-xs font-black uppercase tracking-[0.5em]">Division Data Management System • NYSC Katsina State Command</p>
+      <footer className="p-10 text-center text-slate-500 no-print border-t border-slate-200">
+        <p className="text-sm font-black uppercase tracking-[0.4em]">Federal Republic of Nigeria • NYSC Information portal</p>
       </footer>
     </div>
   );
 };
 
-const SummaryCard = ({ title, value, subtitle, icon, color }: any) => (
-  <div className={`p-6 rounded-[2rem] text-white shadow-xl ${color} flex flex-col justify-between h-full`}>
-    <div className="flex justify-between items-start">
-      <div className="p-3 bg-white/30 rounded-xl">{icon}</div>
-      <span className="text-xs font-black uppercase tracking-widest opacity-90">Status Dashboard</span>
-    </div>
-    <div className="mt-8">
-      <h3 className="text-xs font-black uppercase tracking-widest opacity-90 mb-1">{title}</h3>
-      <div className="text-4xl font-black tracking-tighter">{value}</div>
-      <p className="text-xs font-bold opacity-80 uppercase tracking-widest mt-2">{subtitle}</p>
-    </div>
-  </div>
-);
+// --- Sub-Modules ---
 
-const SelectionToolbar = ({ count, total, onClear, onSelectAll, colorClass = "bg-emerald-100 text-emerald-900" }: any) => (
-  <div className={`${colorClass} border border-emerald-200 p-3 rounded-2xl flex justify-between items-center no-print animate-fade-in shadow-sm`}>
-    <div className="flex items-center gap-4">
-      <span className="text-xs font-black uppercase tracking-widest ml-2">{count} Records Selected</span>
-      <div className="h-4 w-px bg-current opacity-20"></div>
-      <button onClick={onSelectAll} className="text-xs font-black uppercase hover:underline">Select All in View ({total})</button>
-    </div>
-    <button onClick={onClear} className="text-xs font-black uppercase hover:underline opacity-80">Clear Selection</button>
+const SectionHeading = ({ title, subtitle }: { title: string, subtitle: string }) => (
+  <div className="mb-8 border-l-8 border-emerald-800 pl-6 py-2">
+    <h2 className="text-3xl font-black uppercase tracking-tight text-slate-900 leading-none mb-2">{title}</h2>
+    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">{subtitle}</p>
   </div>
 );
 
 const CWHSModule = ({ entries, userRole, lga, db, onShare }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
-  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(entries);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    try {
-      await addData(db, "nysc_reports", { ...formData, lga: lga || 'Daura' });
-      setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
-    } catch (err) { alert("Submission failed"); }
-  };
-
-  const shareIndividual = (e: any) => {
-    let text = `*NYSC ${e.lga} STATION - CW&HS REPORT*\n`;
-    text += `*NAME:* ${e.name.toUpperCase()}\n`;
-    text += `*CODE:* ${e.stateCode}\n`;
-    text += `*STATUS:* ${e.category.toUpperCase()}\n`;
-    if (e.category === ReportCategory.DECEASED && e.dateOfDeath) text += `*DATE OF DEATH:* ${e.dateOfDeath}\n`;
-    text += `*DETAILS:* ${e.details || 'N/A'}\n`;
-    onShare(text);
-  };
-
-  const handleShareList = () => {
-    const itemsToShare = selectedIds.size > 0 ? entries.filter((e: any) => selectedIds.has(e.id)) : entries;
-    if (itemsToShare.length === 0) return;
-    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - CW&HS SUMMARY*\nDate: ${new Date().toLocaleDateString()}\n\n`;
-    itemsToShare.forEach((e: any, i: number) => {
-      text += `${i + 1}. ${e.name.toUpperCase()} (${e.stateCode}) - ${e.category.toUpperCase()}\n`;
-      if (e.category === ReportCategory.DECEASED && e.dateOfDeath) text += `   [✝️ DOD: ${e.dateOfDeath}]\n`;
-    });
-    onShare(text);
+    await addData(db, "nysc_reports", { ...formData, lga: lga || 'Daura' });
+    setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-        <div>
-          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">Corps Welfare & Health Service</h2>
-          <p className="text-sm text-slate-500 font-bold uppercase tracking-widest">Incident Tracking Module</p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
-          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-slate-900 transition-all font-black uppercase text-xs tracking-widest">
-            <FileTextIcon /> PDF Report
-          </button>
-          <button onClick={() => exportToCSV(`CWHS_Export_${new Date().toISOString()}`, entries)} className="bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-300 transition-all font-black uppercase text-xs tracking-widest">
-            <DownloadIcon /> CSV
-          </button>
-          <button onClick={handleShareList} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-xs tracking-widest">
-            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share Selected (${selectedIds.size})` : 'Share Full View'}
-          </button>
-        </div>
+    <div className="animate-fade-in space-y-10">
+      <div className="flex justify-between items-end no-print">
+        <SectionHeading title="Welfare Roll Call" subtitle="Tracking Personnel Health & Incidents" />
+        <button onClick={() => window.print()} className="mb-8 bg-slate-900 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs shadow-xl flex items-center gap-3">
+          <FileTextIcon /> Generate Gazette
+        </button>
       </div>
 
-      {entries.length > 0 && (
-        <SelectionToolbar count={selectedIds.size} total={entries.length} onClear={clearSelection} onSelectAll={selectAll} colorClass="bg-blue-100 text-blue-900 border-blue-200" />
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 no-print">
-          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
-            <h3 className="font-black uppercase mb-8 text-xs text-slate-800 border-b pb-4">Record New Welfare Case</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        <div className="lg:col-span-4 no-print">
+          <div className="bg-white p-10 rounded-[2.5rem] border-2 border-slate-200 shadow-xl sticky top-32">
+            <h3 className="font-black uppercase text-sm text-slate-900 mb-8 pb-4 border-b-2 border-emerald-800/10">Incident Registration Form</h3>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
-                <label className="text-xs font-black uppercase text-slate-600 ml-1">Full Name</label>
-                <input required placeholder="E.G. JOHN DOE" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500 border border-slate-200" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                <label className="text-xs font-black uppercase text-slate-500 ml-1">Corps Member Name</label>
+                <input required placeholder="SURNAME, FIRSTNAME MIDDLENAME" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border-2 border-slate-100 focus:border-emerald-600 outline-none transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black uppercase text-slate-600 ml-1">State Code</label>
-                <input required placeholder="E.G. KT/24A/0001" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500 border border-slate-200" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value})} />
+                <label className="text-xs font-black uppercase text-slate-500 ml-1">State Code</label>
+                <input required placeholder="E.G. KT/24A/0001" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border-2 border-slate-100 focus:border-emerald-600 outline-none transition-all" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value})} />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-black uppercase text-slate-600 ml-1">Status Category</label>
-                <select className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500 border border-slate-200" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
+                <label className="text-xs font-black uppercase text-slate-500 ml-1">Incident Classification</label>
+                <select className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 focus:border-emerald-600 outline-none appearance-none cursor-pointer" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
                   {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               {formData.category === ReportCategory.DECEASED && (
-                <div className="space-y-2 animate-fade-in">
-                  <label className="text-xs font-black uppercase text-red-600 ml-1">Date of Death</label>
-                  <input type="date" required className="w-full p-4 bg-red-50 rounded-2xl font-bold outline-none border-2 border-red-200" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
+                <div className="space-y-2 animate-fade-in p-4 bg-red-50 rounded-2xl border border-red-200">
+                  <label className="text-xs font-black uppercase text-red-800">Verified Date of Demise</label>
+                  <input type="date" required className="w-full p-4 bg-white rounded-xl font-bold border-2 border-red-200 outline-none" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
                 </div>
               )}
               <div className="space-y-2">
-                <label className="text-xs font-black uppercase text-slate-600 ml-1">Specific Details</label>
-                <textarea placeholder="PROVIDE CASE PARTICULARS..." className="w-full p-4 bg-slate-50 rounded-2xl h-32 font-medium outline-none focus:ring-2 focus:ring-emerald-500 border border-slate-200" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+                <label className="text-xs font-black uppercase text-slate-500 ml-1">Case Narrative</label>
+                <textarea placeholder="PROVIDE COMPREHENSIVE INCIDENT DETAILS..." className="w-full p-4 bg-slate-50 rounded-2xl h-32 font-medium border-2 border-slate-100 focus:border-emerald-600 outline-none" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
               </div>
-              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-lg shadow-emerald-800/20 active:scale-95 transition-all">Submit Welfare Record</button>
+              <button className="w-full bg-emerald-800 text-white p-6 rounded-2xl font-black uppercase shadow-xl hover:bg-emerald-900 transition-all flex items-center justify-center gap-3">
+                <PlusIcon /> Commit to Registry
+              </button>
             </form>
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-8 space-y-6">
           {entries.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-1">
               {entries.map((e: any) => (
-                <div 
-                  key={e.id} 
-                  onClick={() => toggleSelect(e.id)}
-                  className={`bg-white p-8 rounded-[2rem] border-2 shadow-sm flex flex-col justify-between group cursor-pointer transition-all ${selectedIds.has(e.id) ? 'border-emerald-500 bg-emerald-50/10' : 'border-transparent hover:border-slate-300'} print:border-slate-300 print:shadow-none print:break-inside-avoid print:mb-4`}
-                >
+                <div key={e.id} className="bg-white p-8 rounded-[2rem] border-2 border-slate-200 shadow-md hover:shadow-xl transition-all relative overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400">
+                  <div className={`absolute top-0 right-0 w-2 h-full ${e.category === ReportCategory.DECEASED ? 'bg-slate-900' : 'bg-emerald-600'}`}></div>
                   <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex flex-col gap-2">
-                        <span className={`text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest ${e.category === ReportCategory.SICK ? 'bg-blue-100 text-blue-800' : e.category === ReportCategory.DECEASED ? 'bg-slate-200 text-slate-900 border border-slate-300' : 'bg-red-100 text-red-800'}`}>{e.category}</span>
-                        {e.category === ReportCategory.DECEASED && e.dateOfDeath && (
-                           <span className="text-xs font-black text-red-700 uppercase tracking-tighter">✝️ DOD: {e.dateOfDeath}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest">{e.lga}</span>
-                        <input type="checkbox" checked={selectedIds.has(e.id)} className="w-4 h-4 rounded-full border-2 border-emerald-500 text-emerald-500 focus:ring-0 no-print" readOnly />
-                      </div>
+                    <div className="flex justify-between items-start mb-6">
+                      <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 ${e.category === ReportCategory.SICK ? 'bg-blue-50 text-blue-800 border-blue-100' : e.category === ReportCategory.DECEASED ? 'bg-slate-950 text-white border-slate-900' : 'bg-red-50 text-red-800 border-red-100'}`}>{e.category}</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{e.lga}</span>
                     </div>
-                    <h4 className="font-black text-xl uppercase leading-tight text-slate-900 mb-1">{e.name}</h4>
-                    <p className="text-sm text-slate-600 font-bold tracking-widest">{e.stateCode}</p>
-                    <p className="mt-6 text-sm text-slate-700 italic leading-relaxed">"{e.details}"</p>
+                    <h4 className="text-2xl font-black uppercase text-slate-900 leading-none mb-2">{e.name}</h4>
+                    <p className="text-xs font-black text-emerald-800 tracking-[0.2em] mb-4">{e.stateCode}</p>
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-sm text-slate-700 italic leading-relaxed">"{e.details}"</p>
+                    </div>
+                    {e.category === ReportCategory.DECEASED && e.dateOfDeath && (
+                      <p className="mt-4 text-[10px] font-black uppercase text-red-700">✝️ Date of Demise: {new Date(e.dateOfDeath).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                    )}
                   </div>
-                  <div className="mt-8 pt-4 border-t border-slate-100 flex justify-between items-center no-print" onClick={ev => ev.stopPropagation()}>
-                    <span className="text-xs font-bold text-slate-500">{new Date(e.dateAdded).toLocaleDateString()}</span>
+                  <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center no-print">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Added: {new Date(e.dateAdded).toLocaleDateString()}</span>
                     <div className="flex gap-2">
-                      <button onClick={() => shareIndividual(e)} className="p-2 text-emerald-700 bg-emerald-100 rounded-lg hover:bg-emerald-200 transition-all"><WhatsAppIcon /></button>
-                      <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><TrashIcon /></button>
+                      <button onClick={() => onShare(`*NYSC ${e.lga} REPORT*\nNAME: ${e.name}\nCODE: ${e.stateCode}\nSTATUS: ${e.category}\nDETAILS: ${e.details}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all border border-emerald-200"><WhatsAppIcon /></button>
+                      <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all border border-red-200"><TrashIcon /></button>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center">
-              <div className="p-6 bg-slate-50 rounded-full mb-6 text-slate-300"><DashboardIcon /></div>
-              <h4 className="text-lg font-black text-slate-600 uppercase tracking-[0.2em]">No Records Found</h4>
-              <p className="text-sm text-slate-500 mt-2">All systems clear for this station</p>
+            <div className="bg-white p-32 rounded-[3rem] border-4 border-dashed border-slate-200 text-center flex flex-col items-center">
+              <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6"><DashboardIcon /></div>
+              <h4 className="text-2xl font-black text-slate-300 uppercase tracking-widest">Station Log Clear</h4>
             </div>
           )}
         </div>
@@ -488,9 +372,17 @@ const CWHSModule = ({ entries, userRole, lga, db, onShare }: any) => {
   );
 };
 
-const CIMModule = ({ entries, userRole, lga, db, onShare }: any) => {
+const CIMModule = ({ entries, userRole, lga, db, onShare, onGenerateQuery, loading }: any) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
-  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(entries);
+
+  const totalStats = useMemo(() => {
+    return entries.reduce((acc: any, curr: any) => {
+      acc.strength += (curr.maleCount + curr.femaleCount);
+      acc.cleared += curr.clearedCount;
+      acc.uncleared += (curr.unclearedList?.length || 0);
+      return acc;
+    }, { strength: 0, cleared: 0, uncleared: 0 });
+  }, [entries]);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -498,84 +390,138 @@ const CIMModule = ({ entries, userRole, lga, db, onShare }: any) => {
       const parts = line.split(',').map(p => p.trim());
       return { name: parts[0] || '', code: parts[1] || '', reason: parts[2] || 'Absent' };
     }).filter(x => x.name);
-    try {
-      await addData(db, "cim_clearance", { month: formData.month, maleCount: Number(formData.maleCount), femaleCount: Number(formData.femaleCount), clearedCount: Number(formData.clearedCount), unclearedList, lga: lga || 'Daura' });
-      setFormData({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
-    } catch (err) { alert("Submission failed"); }
-  };
-
-  const shareIndividual = (e: any) => {
-    let text = `*NYSC ${e.lga} CIM AUDIT*\n`;
-    text += `*MONTH:* ${new Date(e.month).toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase()}\n`;
-    text += `*CLEARED:* ${e.clearedCount} of ${e.maleCount + e.femaleCount}\n`;
-    if (e.unclearedList?.length) text += `*FLAGGED:* ${e.unclearedList.length} Personnel\n`;
-    onShare(text);
+    await addData(db, "cim_clearance", { 
+      month: formData.month, 
+      maleCount: Number(formData.maleCount), 
+      femaleCount: Number(formData.femaleCount), 
+      clearedCount: Number(formData.clearedCount), 
+      unclearedList, 
+      lga: lga || 'Daura' 
+    });
+    setFormData({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-        <div>
-          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">Corps Inspection & Monitoring</h2>
-          <p className="text-sm text-slate-500 font-bold uppercase tracking-widest">Clearance Management</p>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-slate-900 transition-all font-black uppercase text-xs tracking-widest"><FileTextIcon /> PDF</button>
-          <button onClick={() => exportToCSV(`CIM_Audit_${new Date().toISOString()}`, entries)} className="bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-300 transition-all font-black uppercase text-xs tracking-widest"><DownloadIcon /> CSV</button>
-          <button onClick={() => onShare(`*NYSC CIM REPORT*\nTotal Logs: ${entries.length}`)} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-xs tracking-widest"><WhatsAppIcon /> Share Summary</button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 no-print">
-          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
-            <h3 className="font-black uppercase mb-6 text-xs text-slate-800 border-b pb-4">Submit Audit Entry</h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <input type="month" required className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} />
-              <div className="grid grid-cols-2 gap-4">
-                <input type="number" required placeholder="Male" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: Number(e.target.value)})} />
-                <input type="number" required placeholder="Female" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: Number(e.target.value)})} />
-              </div>
-              <input type="number" required placeholder="Cleared" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.clearedCount} onChange={e => setFormData({...formData, clearedCount: Number(e.target.value)})} />
-              <textarea placeholder="Uncleared List: Name, Code, Reason" className="w-full p-4 bg-slate-50 rounded-2xl h-32 text-xs border border-slate-200" value={formData.uncleared} onChange={e => setFormData({...formData, uncleared: e.target.value})} />
-              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase">Finalize Submission</button>
-            </form>
+    <div className="animate-fade-in space-y-10">
+      <div className="no-print">
+        <SectionHeading title="Clearance Audit Ledger" subtitle="Biometric Confirmation & Disciplinary Tracking" />
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">
+          <div className="bg-white p-8 rounded-3xl border-2 border-slate-200 shadow-lg">
+            <h5 className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-2">Aggregate Zonal Strength</h5>
+            <div className="text-4xl font-black text-slate-900">{totalStats.strength}</div>
+            <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-widest">Total Active Corps Members</p>
+          </div>
+          <div className="bg-emerald-50 p-8 rounded-3xl border-2 border-emerald-200 shadow-lg">
+            <h5 className="text-[10px] font-black uppercase text-emerald-800 tracking-widest mb-2">Verified/Cleared Personnel</h5>
+            <div className="text-4xl font-black text-emerald-900">{totalStats.cleared}</div>
+            <p className="text-[10px] font-bold text-emerald-600 mt-2 uppercase tracking-widest">{totalStats.strength ? Math.round((totalStats.cleared / totalStats.strength) * 100) : 0}% Monthly Success Rate</p>
+          </div>
+          <div className="bg-red-50 p-8 rounded-3xl border-2 border-red-200 shadow-lg">
+            <h5 className="text-[10px] font-black uppercase text-red-800 tracking-widest mb-2">Defaulted/Uncleared Flags</h5>
+            <div className="text-4xl font-black text-red-900">{totalStats.uncleared}</div>
+            <p className="text-[10px] font-bold text-red-600 mt-2 uppercase tracking-widest">Disciplinary Queries Pending</p>
           </div>
         </div>
-        <div className="lg:col-span-2 space-y-6">
-          {entries.length > 0 ? entries.map((e: any) => (
-            <div key={e.id} className="bg-white p-8 rounded-[2.5rem] border-2 shadow-sm border-l-amber-500 hover:border-slate-300 transition-all">
-              <div className="flex justify-between items-start mb-4">
-                <h4 className="font-black text-xl uppercase text-slate-900">{new Date(e.month).toLocaleString('default', { month: 'long', year: 'numeric' })}</h4>
-                <div className="flex gap-2 no-print">
-                  <button onClick={() => shareIndividual(e)} className="p-2 text-emerald-700 bg-emerald-100 rounded-lg hover:bg-emerald-200 transition-all"><WhatsAppIcon /></button>
-                  <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><TrashIcon /></button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        <div className="lg:col-span-4 no-print">
+          <div className="bg-white p-10 rounded-[2.5rem] border-2 border-slate-200 shadow-xl">
+             <h3 className="font-black uppercase text-sm text-slate-900 mb-8 pb-4 border-b-2 border-amber-500/10">Clearance Month Entry</h3>
+             <form onSubmit={handleSubmit} className="space-y-4">
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Reporting Period</label>
+                 <input type="month" required className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} />
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Male Count</label>
+                   <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: Number(e.target.value)})} />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Female Count</label>
+                   <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: Number(e.target.value)})} />
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Total Cleared Successfully</label>
+                 <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.clearedCount} onChange={e => setFormData({...formData, clearedCount: Number(e.target.value)})} />
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Default List (Name, Code, Reason)</label>
+                 <textarea placeholder="Line format: NAME, CODE, REASON" className="w-full p-4 bg-slate-50 rounded-2xl h-40 text-xs font-mono border-2 border-slate-100 outline-none" value={formData.uncleared} onChange={e => setFormData({...formData, uncleared: e.target.value})} />
+                 <p className="text-[9px] text-slate-400 font-bold uppercase p-2">* Each CM on a new line separated by commas.</p>
+               </div>
+               <button className="w-full bg-slate-900 text-white p-6 rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all">Submit Monthly Audit</button>
+             </form>
+          </div>
+        </div>
+
+        <div className="lg:col-span-8 space-y-8">
+          {entries.map((e: any) => (
+            <div key={e.id} className="bg-white rounded-[2.5rem] border-2 border-slate-200 shadow-xl overflow-hidden hover:border-emerald-800/30 transition-all">
+              <div className="bg-slate-950 p-8 text-white flex justify-between items-center">
+                <div>
+                  <h4 className="text-2xl font-black uppercase tracking-tighter">{new Date(e.month).toLocaleString('default', { month: 'long', year: 'numeric' })} AUDIT</h4>
+                  <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">{e.lga} STATION COMMAND</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-black uppercase text-slate-400 mb-1">Station Strength</div>
+                  <div className="text-3xl font-black leading-none">{e.maleCount + e.femaleCount}</div>
                 </div>
               </div>
-              <p className="text-xs text-slate-600 font-bold uppercase mb-4 tracking-widest">{e.lga} STATION LOG</p>
-              <div className="bg-slate-50 p-4 rounded-2xl mb-4 border border-slate-100">
-                <div className="flex justify-between text-xs font-black uppercase mb-2">
-                  <span className="text-slate-700">Cleared Success Rate</span>
-                  <span className="text-emerald-700">{Math.round((e.clearedCount / (e.maleCount + e.femaleCount)) * 100)}% ({e.clearedCount} CMs)</span>
+              
+              <div className="p-8 space-y-8">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">MALE CMs</span>
+                    <span className="text-xl font-black">{e.maleCount}</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">FEMALE CMs</span>
+                    <span className="text-xl font-black">{e.femaleCount}</span>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest block mb-1">CLEARED</span>
+                    <span className="text-xl font-black text-emerald-900">{e.clearedCount}</span>
+                  </div>
+                  <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
+                    <span className="text-[9px] font-black text-red-800 uppercase tracking-widest block mb-1">UNCLEARED</span>
+                    <span className="text-xl font-black text-red-900">{e.unclearedList?.length || 0}</span>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full transition-all duration-1000" style={{ width: `${(e.clearedCount / (e.maleCount + e.femaleCount)) * 100}%` }}></div>
-                </div>
-              </div>
-              {e.unclearedList?.length > 0 && (
-                <div className="space-y-2">
-                  <h5 className="text-xs font-black text-red-700 uppercase">Flags ({e.unclearedList.length}):</h5>
-                  {e.unclearedList.map((cm: any, idx: number) => (
-                    <div key={idx} className="text-xs p-2 bg-red-50 rounded-lg border border-red-200 flex justify-between shadow-sm">
-                      <span className="font-black text-red-900">{cm.name} ({cm.code})</span>
-                      <span className="italic text-slate-600">{cm.reason}</span>
+
+                {e.unclearedList?.length > 0 && (
+                  <div className="pt-6 border-t border-slate-100">
+                    <h5 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                      <AbscondedIcon /> PERSONNEL IN DEFAULT (Biometric Miss)
+                    </h5>
+                    <div className="space-y-3">
+                      {e.unclearedList.map((cm: any, idx: number) => (
+                        <div key={idx} className="flex flex-col md:flex-row justify-between items-center p-5 bg-slate-50 rounded-2xl border border-slate-200 gap-4">
+                          <div>
+                            <span className="font-black text-slate-900 block uppercase text-sm">{cm.name}</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cm.code} • Reason: {cm.reason}</span>
+                          </div>
+                          <div className="flex gap-2 w-full md:w-auto">
+                            <button 
+                              disabled={loading}
+                              onClick={() => onGenerateQuery(cm, e.lga)} 
+                              className="flex-1 md:flex-none px-4 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {loading ? 'Generating...' : <><FileTextIcon /> Generate Query</>}
+                            </button>
+                            <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-3 text-slate-300 hover:text-red-700 transition-all"><TrashIcon /></button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
-          )) : (
-            <div className="bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-200 text-center text-slate-500 font-bold uppercase">No Audit History Found</div>
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -584,79 +530,73 @@ const CIMModule = ({ entries, userRole, lga, db, onShare }: any) => {
 
 const SAEDModule = ({ entries, userRole, lga, db, onShare }: any) => {
   const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
-  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(entries);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    try {
-      await addData(db, "saed_centers", { ...formData, lga: lga || 'Daura' });
-      setFormData({ centerName: '', address: '', cmCount: 0, fee: 0 });
-    } catch (err) { alert("Registration failed"); }
-  };
-
-  const shareIndividual = (e: any) => {
-    let text = `*NYSC ${e.lga} SAED REGISTRY*\n`;
-    text += `*CENTER:* ${e.centerName.toUpperCase()}\n`;
-    text += `*TRAINEES:* ${e.cmCount}\n`;
-    text += `*FEE:* ₦${e.fee.toLocaleString()}\n`;
-    text += `*LOCATION:* ${e.address}\n`;
-    onShare(text);
+    await addData(db, "saed_centers", { ...formData, lga: lga || 'Daura' });
+    setFormData({ centerName: '', address: '', cmCount: 0, fee: 0 });
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-        <div>
-          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">SAED Training Registry</h2>
-          <p className="text-sm text-slate-500 font-bold uppercase tracking-widest">Skill Acquisition Hubs</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-slate-900 transition-all font-black uppercase text-xs tracking-widest"><FileTextIcon /> PDF Registry</button>
-          <button onClick={() => exportToCSV(`SAED_Registry_${new Date().toISOString()}`, entries)} className="bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-300 transition-all font-black uppercase text-xs tracking-widest"><DownloadIcon /> CSV</button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <div className="lg:col-span-1 no-print">
-          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
-            <h3 className="font-black uppercase mb-8 text-xs text-slate-800 border-b pb-4">Register New Center</h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <input required placeholder="Center Name" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border border-slate-200" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value})} />
-              <input required placeholder="Physical Address" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border border-slate-200" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
-              <div className="grid grid-cols-2 gap-4">
-                <input type="number" required placeholder="Trainees" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.cmCount} onChange={e => setFormData({...formData, cmCount: Number(e.target.value)})} />
-                <input type="number" required placeholder="Fee (₦)" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border border-slate-200" value={formData.fee} onChange={e => setFormData({...formData, fee: Number(e.target.value)})} />
-              </div>
-              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase">Confirm Registration</button>
-            </form>
-          </div>
-        </div>
-        <div className="lg:col-span-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-1">
-            {entries.length > 0 ? entries.map((c: any) => (
-              <div key={c.id} className="bg-white p-8 rounded-[2.5rem] border-2 shadow-sm border-l-purple-600 hover:border-slate-300 transition-all">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h4 className="font-black text-xl uppercase tracking-tight text-slate-900 leading-none mb-2">{c.centerName}</h4>
-                    <p className="text-xs font-black text-purple-700 uppercase tracking-widest">{c.lga} STATION</p>
+    <div className="animate-fade-in space-y-10">
+      <SectionHeading title="SAED Skill Hub" subtitle="Entrepreneurship Training & Enrollment Records" />
+      
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        <div className="lg:col-span-4 no-print">
+          <div className="bg-white p-10 rounded-[2.5rem] border-2 border-slate-200 shadow-xl">
+             <h3 className="font-black uppercase text-sm text-slate-900 mb-8 pb-4 border-b-2 border-purple-800/10">Register Training Center</h3>
+             <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-black uppercase text-slate-500 ml-1">Establishment Name</label>
+                  <input required placeholder="E.G. DAURA SKILL HUB" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border-2 border-slate-100 outline-none" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-black uppercase text-slate-500 ml-1">Physical Location</label>
+                  <input required placeholder="FULL OFFICE ADDRESS" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase border-2 border-slate-100 outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase text-slate-500 ml-1">Enrolled CMs</label>
+                    <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.cmCount} onChange={e => setFormData({...formData, cmCount: Number(e.target.value)})} />
                   </div>
-                  <div className="flex gap-2 no-print">
-                    <button onClick={() => shareIndividual(c)} className="p-2 text-emerald-700 bg-emerald-100 rounded-lg hover:bg-emerald-200 transition-all"><WhatsAppIcon /></button>
-                    <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-2 text-slate-400 hover:text-red-600 transition-colors"><TrashIcon /></button>
+                  <div className="space-y-1">
+                    <label className="text-xs font-black uppercase text-slate-500 ml-1">Monthly Fee (₦)</label>
+                    <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold border-2 border-slate-100 outline-none" value={formData.fee} onChange={e => setFormData({...formData, fee: Number(e.target.value)})} />
                   </div>
                 </div>
-                <p className="text-sm text-slate-600 italic mb-4">{c.address}</p>
-                <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black text-slate-700">{c.cmCount}</div>
-                    <span className="text-xs font-black uppercase text-slate-600 tracking-widest">Enrolled</span>
-                  </div>
-                  <div className="bg-purple-100 text-purple-900 px-4 py-2 rounded-2xl text-xs font-black border border-purple-200">₦{c.fee.toLocaleString()}</div>
-                </div>
-              </div>
-            )) : (
-              <div className="col-span-full bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-200 text-center text-slate-500 font-bold uppercase">No Skill Centers Registered</div>
-            )}
+                <button className="w-full bg-purple-900 text-white p-6 rounded-2xl font-black uppercase shadow-xl hover:bg-purple-950 transition-all">Publish Center</button>
+             </form>
           </div>
+        </div>
+
+        <div className="lg:col-span-8">
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-1">
+             {entries.map((c: any) => (
+               <div key={c.id} className="bg-white p-10 rounded-[2.5rem] border-2 border-slate-200 shadow-md hover:border-purple-800 transition-all flex flex-col justify-between">
+                 <div>
+                   <div className="flex justify-between items-start mb-6">
+                     <span className="bg-purple-50 text-purple-900 px-5 py-2 rounded-xl text-xs font-black border border-purple-200">₦{c.fee.toLocaleString()}</span>
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{c.lga} STATION</span>
+                   </div>
+                   <h4 className="text-2xl font-black uppercase tracking-tight text-slate-900 leading-none mb-3">{c.centerName}</h4>
+                   <div className="flex items-center gap-2 mb-6">
+                     <SearchIcon />
+                     <p className="text-sm text-slate-500 font-medium italic">{c.address}</p>
+                   </div>
+                 </div>
+                 <div className="flex justify-between items-center pt-6 border-t border-slate-100">
+                   <div className="flex items-center gap-4">
+                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-lg font-black text-slate-800 shadow-inner">{c.cmCount}</div>
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">Enrolled Trainees</span>
+                   </div>
+                   <div className="flex gap-2 no-print">
+                     <button onClick={() => onShare(`*SAED HUB: ${c.centerName}*\nADDRESS: ${c.address}\nFEE: ₦${c.fee}\nENROLLMENT: ${c.cmCount}`)} className="p-3 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition-all border border-purple-200"><WhatsAppIcon /></button>
+                     <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all border border-red-200"><TrashIcon /></button>
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
         </div>
       </div>
     </div>
