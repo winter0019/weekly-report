@@ -1,4 +1,3 @@
-
 export enum ReportCategory {
   ABSCONDED = 'Absconded',
   SICK = 'Sick/Hospitalized',
@@ -20,50 +19,37 @@ export type DauraLga =
   | 'Mani' 
   | 'Bindawa';
 
-export interface BaseMember {
+export interface CorpsMemberEntry {
   id: string;
   name: string;
   stateCode: string;
   dateAdded: string;
   lga: DauraLga;
+  category: ReportCategory;
+  details?: string;
+  dateOfDeath?: string;
 }
 
-export interface AbscondedMember extends BaseMember {
-  category: ReportCategory.ABSCONDED;
-  period: string;
+export interface CIMClearance {
+  id: string;
+  lga: DauraLga;
+  month: string;
+  maleCount: number;
+  femaleCount: number;
+  totalCMs: number;
+  clearedCount: number;
+  unclearedList: { name: string; code: string; reason: string }[];
+  dateAdded: string;
 }
 
-export interface SickMember extends BaseMember {
-  category: ReportCategory.SICK;
-  illness: string;
-  hospitalized: boolean;
+export interface SAEDCenter {
+  id: string;
+  lga: DauraLga;
+  centerName: string;
+  address: string;
+  cmCount: number;
+  fee: number;
+  dateAdded: string;
 }
 
-export interface KidnappedMember extends BaseMember {
-  category: ReportCategory.KIDNAPPED;
-  dateKidnapped: string;
-}
-
-export interface MissingMember extends BaseMember {
-  category: ReportCategory.MISSING;
-  dateMissing: string;
-}
-
-export interface DeceasedMember extends BaseMember {
-  category: ReportCategory.DECEASED;
-  dateOfDeath: string;
-  reason: string;
-}
-
-export type CorpsMemberEntry = 
-  | AbscondedMember 
-  | SickMember 
-  | KidnappedMember 
-  | MissingMember 
-  | DeceasedMember;
-
-export interface WeeklyReportState {
-  entries: CorpsMemberEntry[];
-  secretariatName: string;
-  reportDate: string;
-}
+export type Division = 'CWHS' | 'CIM' | 'SAED';

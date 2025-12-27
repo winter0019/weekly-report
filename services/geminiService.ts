@@ -1,40 +1,19 @@
-
 import { GoogleGenAI } from "@google/genai";
-import { CorpsMemberEntry, ReportCategory, DauraLga } from "../types";
 
-// Fixed: Simplified error handling and ensured proper usage of the GoogleGenAI instance
-export async function summarizeReport(entries: CorpsMemberEntry[], zoneName: string): Promise<string> {
-  // Always use the named parameter and direct environment variable access
+export async function generateDisciplinaryQuery(cmName: string, cmCode: string, reason: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const lgas: DauraLga[] = ['Daura', 'Baure', 'Zango', 'Sandamu', 'Mai’Adua', 'Mashi', 'Dutsi', 'Mani', 'Bindawa'];
-  
-  let dataSummary = `RAW DATASET FOR ${zoneName.toUpperCase()}\n\n`;
-
-  lgas.forEach(lga => {
-    const lgaEntries = entries.filter(e => e.lga === lga);
-    if (lgaEntries.length > 0) {
-      dataSummary += `LGA: ${lga}\n`;
-      lgaEntries.forEach(e => {
-        dataSummary += `- [${e.category}] ${e.name} (${e.stateCode})\n`;
-      });
-      dataSummary += `\n`;
-    }
-  });
-
   const prompt = `
-    TASK: Generate a professional NYSC Zonal Memorandum.
-    ROLE: Zonal Inspector, ${zoneName}.
-    DATE: ${new Date().toLocaleDateString('en-GB')}
-    DATA:
-    ${dataSummary}
+    TASK: Generate a formal disciplinary query letter for an NYSC Corps Member.
+    CM NAME: ${cmName}
+    CM CODE: ${cmCode}
+    REASON FOR QUERY: Absent from duty without permission (${reason}).
     
     INSTRUCTIONS:
-    1. Create a formal internal memorandum layout.
-    2. Start with a "FROM:", "TO:", and "SUBJECT: WEEKLY STATUS REPORT ON CORPS MEMBERS" line.
-    3. Include a professional Executive Summary.
-    4. Categorize by LGA and provide a summary of the reported incidents.
-    5. Maintain a formal, administrative tone suitable for State Headquarters.
+    1. Cite the NYSC Bye-Laws (2011 Revised), specifically Schedule 1 (Item 1) regarding absenteeism.
+    2. Maintain a strict, administrative tone.
+    3. Include fields for 'To:', 'From: Local Government Inspector', and 'Subject: QUERY FOR ABSENCE FROM PLACE OF PRIMARY ASSIGNMENT'.
+    4. Demand a written explanation within 24 hours.
   `;
 
   try {
@@ -42,9 +21,9 @@ export async function summarizeReport(entries: CorpsMemberEntry[], zoneName: str
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    return response.text || "Report compilation failed.";
-  } catch (err: any) {
-    console.error("Gemini Service Error:", err);
-    throw new Error("The report generator encountered an issue processing the data.");
+    return response.text || "Failed to generate query.";
+  } catch (err) {
+    console.error("Gemini Error:", err);
+    return "Error generating AI query.";
   }
 }

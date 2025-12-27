@@ -3,7 +3,10 @@ import {
   ReportCategory, 
   CorpsMemberEntry, 
   DauraLga,
-  UserRole
+  UserRole,
+  Division,
+  CIMClearance,
+  SAEDCenter
 } from './types';
 import { 
   PlusIcon, 
@@ -15,12 +18,10 @@ import {
   SearchIcon,
   AbscondedIcon,
   SickIcon,
-  KidnappedIcon,
-  MissingIcon,
-  DeceasedIcon,
   DashboardIcon
 } from './components/Icons';
-import { initFirebase, subscribeToReports, addReport, deleteReport, updateReport } from './services/firebaseService';
+import { initFirebase, subscribeToCollection, addData, updateData, deleteData } from './services/firebaseService';
+import { generateDisciplinaryQuery } from './services/geminiService';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -32,57 +33,24 @@ const firebaseConfig = {
 };
 
 const LGAS: DauraLga[] = ['Daura', 'Baure', 'Zango', 'Sandamu', 'Mai’Adua', 'Mashi', 'Dutsi', 'Mani', 'Bindawa'];
-
 const SECURITY_PINS: Record<string, string> = {
   'ZI': '0000', 'Daura': '1111', 'Baure': '2222', 'Zango': '3333', 'Sandamu': '4444', 
   'Mai’Adua': '5555', 'Mashi': '6666', 'Dutsi': '7777', 'Mani': '8888', 'Bindawa': '9999'
 };
-
-const CATEGORY_COLORS: Record<string, string> = {
-  [ReportCategory.ABSCONDED]: 'bg-amber-100 text-amber-700 border-amber-200',
-  [ReportCategory.SICK]: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  [ReportCategory.KIDNAPPED]: 'bg-orange-100 text-orange-700 border-orange-200',
-  [ReportCategory.MISSING]: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-  [ReportCategory.DECEASED]: 'bg-red-100 text-red-700 border-red-200',
-};
-
-const CATEGORY_ICONS: Record<string, React.ReactNode> = {
-  [ReportCategory.ABSCONDED]: <AbscondedIcon />,
-  [ReportCategory.SICK]: <SickIcon />,
-  [ReportCategory.KIDNAPPED]: <KidnappedIcon />,
-  [ReportCategory.MISSING]: <MissingIcon />,
-  [ReportCategory.DECEASED]: <DeceasedIcon />,
-};
-
-type ViewMode = 'DASHBOARD' | 'FORM';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
   const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
   const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => localStorage.getItem('daura_lga') as DauraLga);
   
-  const [entries, setEntries] = useState<CorpsMemberEntry[]>([]);
-  const [currentView, setCurrentView] = useState<ViewMode>('DASHBOARD');
-  const [editingEntry, setEditingEntry] = useState<CorpsMemberEntry | null>(null);
-  const [isPrintOnlySelection, setIsPrintOnlySelection] = useState(false);
+  const [division, setDivision] = useState<Division>('CWHS');
+  const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
+  const [cimEntries, setCimEntries] = useState<CIMClearance[]>([]);
+  const [saedEntries, setSaedEntries] = useState<SAEDCenter[]>([]);
   
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState<ReportCategory | 'ALL'>('ALL');
-  const [filterLga, setFilterLga] = useState<DauraLga | 'ALL'>('ALL');
-  
-  const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
-  const [pendingLga, setPendingLga] = useState<DauraLga | null>(null);
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
-
-  const [formData, setFormData] = useState({ 
-    name: '', 
-    stateCode: '', 
-    category: ReportCategory.SICK, 
-    details: '',
-    dateOfDeath: ''
-  });
+  const [pendingLogin, setPendingLogin] = useState<any>(null);
 
   const dbRef = useRef<any>(null);
 
@@ -90,52 +58,27 @@ const App: React.FC = () => {
     if (isAuthenticated) {
       try {
         dbRef.current = initFirebase(firebaseConfig);
-        const unsubscribe = subscribeToReports(dbRef.current, (data) => setEntries(data as CorpsMemberEntry[]));
-        return () => unsubscribe && unsubscribe();
+        const unsub1 = subscribeToCollection(dbRef.current, "nysc_reports", setCwhsEntries);
+        const unsub2 = subscribeToCollection(dbRef.current, "cim_clearance", setCimEntries);
+        const unsub3 = subscribeToCollection(dbRef.current, "saed_centers", setSaedEntries);
+        return () => { unsub1(); unsub2(); unsub3(); };
       } catch (err) {
-        console.error("Setup error", err);
+        console.error("Setup error in App:", err);
       }
     }
   }, [isAuthenticated]);
 
-  const filteredEntries = useMemo(() => {
-    let base = userRole === 'ZI' ? entries : entries.filter(e => e.lga === lgaContext);
-    return base.filter(e => {
-      const matchesSearch = e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           e.stateCode.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = filterCategory === 'ALL' || e.category === filterCategory;
-      const matchesLga = filterLga === 'ALL' || e.lga === filterLga;
-      return matchesSearch && matchesCategory && matchesLga;
-    });
-  }, [entries, searchQuery, filterCategory, filterLga, userRole, lgaContext]);
-
-  const stats = useMemo(() => {
-    const counts = {
-      TOTAL: filteredEntries.length,
-      [ReportCategory.ABSCONDED]: 0,
-      [ReportCategory.SICK]: 0,
-      [ReportCategory.KIDNAPPED]: 0,
-      [ReportCategory.MISSING]: 0,
-      [ReportCategory.DECEASED]: 0,
-    };
-    filteredEntries.forEach(e => {
-      counts[e.category]++;
-    });
-    return counts;
-  }, [filteredEntries]);
-
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const target = pendingRole === 'ZI' ? 'ZI' : pendingLga;
+    const target = pendingLogin?.role === 'ZI' ? 'ZI' : pendingLogin?.lga;
     if (target && pin === SECURITY_PINS[target]) {
       setIsAuthenticated(true);
-      setUserRole(pendingRole);
-      setLgaContext(pendingLga);
+      setUserRole(pendingLogin.role);
+      setLgaContext(pendingLogin.lga);
       localStorage.setItem('daura_auth', 'true');
-      localStorage.setItem('daura_role', pendingRole!);
-      if (pendingLga) localStorage.setItem('daura_lga', pendingLga);
-      setPin('');
-    } else { setLoginError(true); }
+      localStorage.setItem('daura_role', pendingLogin.role);
+      if (pendingLogin.lga) localStorage.setItem('daura_lga', pendingLogin.lga);
+    } else setLoginError(true);
   };
 
   const handleLogout = () => {
@@ -143,419 +86,405 @@ const App: React.FC = () => {
     location.reload();
   };
 
-  const toggleSelect = (id: string) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) newSelected.delete(id);
-    else newSelected.add(id);
-    setSelectedIds(newSelected);
-  };
-
-  const selectAll = () => {
-    if (selectedIds.size === filteredEntries.length && filteredEntries.length > 0) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filteredEntries.map(e => e.id)));
-  };
-
-  const downloadCSV = (dataToExport: CorpsMemberEntry[]) => {
-    if (dataToExport.length === 0) return;
-    const headers = ["Name", "State Code", "LGA", "Category", "Date Added", "Details", "Date of Death"];
-    const rows = dataToExport.map(e => [
-      e.name,
-      e.stateCode,
-      e.lga,
-      e.category,
-      new Date(e.dateAdded).toLocaleDateString(),
-      (e as any).details || "",
-      (e as any).dateOfDeath || "N/A"
-    ].map(val => `"${val.toString().replace(/"/g, '""')}"`).join(","));
-
-    const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `NYSC_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const shareViaWhatsApp = (dataToShare: CorpsMemberEntry[]) => {
-    if (dataToShare.length === 0) return;
-    const dateStr = new Date().toLocaleDateString();
-    let text = `*NYSC STATUS REPORT - ${dateStr}*\n`;
-
-    if (userRole === 'ZI') {
-      // Zonal Office Report Template
-      text += `Station(s): ${filterLga === 'ALL' ? 'DAURA ZONAL HQ (ALL)' : filterLga}\n`;
-      text += `Total Records: ${dataToShare.length}\n`;
-      text += `--------------------------\n`;
-      dataToShare.forEach((e, idx) => {
-        text += `*${idx + 1}. ${e.name.toLowerCase()}*\n`;
-        text += `Code: ${e.stateCode}\n`;
-        text += `LGA: ${e.lga}\n`;
-        text += `Status: ${e.category}\n`;
-        if (e.category === ReportCategory.DECEASED && (e as any).dateOfDeath) {
-          text += `Date of Death: ${(e as any).dateOfDeath}\n`;
-        }
-        text += `--------------------------\n`;
-      });
-    } else {
-      // Local Government Report Template
-      text += `Station: ${lgaContext}\n`;
-      text += `--------------------------\n`;
-      text += `*Summary:*\n`;
-      text += `- Total: ${dataToShare.length}\n`;
-      Object.values(ReportCategory).forEach(cat => {
-        const count = dataToShare.filter(d => d.category === cat).length;
-        if (count > 0) text += `- ${cat}: ${count}\n`;
-      });
-      text += `--------------------------\n`;
-      text += `*Recent Records:*\n`;
-      dataToShare.forEach(e => {
-        text += `• ${e.name.toLowerCase()} (${e.stateCode}) - ${e.category}\n`;
-      });
-    }
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  };
-
-  const handlePrintSelection = () => {
-    setIsPrintOnlySelection(true);
-    setTimeout(() => {
-      window.print();
-      setIsPrintOnlySelection(false);
-    }, 100);
-  };
-
-  const handlePrintAll = () => {
-    setIsPrintOnlySelection(false);
-    setTimeout(() => {
-      window.print();
-    }, 100);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      ...formData,
-      lga: lgaContext || 'Daura',
-      dateAdded: editingEntry ? editingEntry.dateAdded : new Date().toISOString(),
-      ...(formData.category !== ReportCategory.DECEASED && { dateOfDeath: '' })
-    };
-    try {
-      if (editingEntry) {
-        await updateReport(dbRef.current, editingEntry.id, payload);
-      } else {
-        await addReport(dbRef.current, payload);
-      }
-      setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
-      setEditingEntry(null);
-      setCurrentView('DASHBOARD');
-    } catch (err) { alert("Action failed."); }
-  };
-
-  const selectedEntries = useMemo(() => 
-    filteredEntries.filter(e => selectedIds.has(e.id)), 
-    [filteredEntries, selectedIds]
-  );
-
-  const entriesToDisplay = isPrintOnlySelection ? selectedEntries : filteredEntries;
-
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <div className="bg-white rounded-3xl shadow-2xl w-full max-md p-10 animate-fade-in">
-          <div className="text-center mb-10">
-            <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">NYSC DAURA</h1>
-            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Intelligence Access</p>
+        <form onSubmit={handleLogin} className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md space-y-6 animate-fade-in">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">NYSC DAURA</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-1">Division HQ Access</p>
           </div>
-          <form onSubmit={handleLogin} className="space-y-6">
-            <select required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" onChange={e => {
-              const v = e.target.value;
-              if (v === 'ZI') { setPendingRole('ZI'); setPendingLga(null); }
-              else { setPendingRole('LGI'); setPendingLga(v as DauraLga); }
+          <div className="space-y-4">
+            <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none" onChange={e => {
+              const val = e.target.value;
+              setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
             }}>
-              <option value="">Select Terminal...</option>
-              <option value="ZI">Zonal Inspector (ZI)</option>
-              {LGAS.map(l => <option key={l} value={l}>{l} Station</option>)}
+              <option value="">Select Division/Station...</option>
+              <option value="ZI">Zonal Office (ZI)</option>
+              {LGAS.map(l => <option key={l} value={l}>{l} Station (LGI)</option>)}
             </select>
-            <input type="password" required placeholder="PIN" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-4xl font-black tracking-widest outline-none focus:ring-2 focus:ring-emerald-500" value={pin} onChange={e => setPin(e.target.value)} />
-            {loginError && <p className="text-red-600 text-[10px] font-black text-center uppercase">Access Denied</p>}
-            <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-emerald-900 transition-all">Authenticate</button>
-          </form>
-        </div>
+            <input type="password" required placeholder="Security PIN" className="w-full p-4 bg-slate-50 border rounded-2xl text-center text-3xl font-black focus:ring-2 focus:ring-emerald-500 outline-none" value={pin} onChange={e => setPin(e.target.value)} />
+          </div>
+          {loginError && <p className="text-red-500 text-[10px] font-black text-center uppercase tracking-widest">Access Denied: Invalid PIN</p>}
+          <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-xl hover:bg-emerald-900 transition-all active:scale-95">Authenticate Division</button>
+        </form>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white p-4 md:p-6 shadow-xl flex justify-between items-center sticky top-0 z-50 no-print">
-        <div className="flex items-center gap-3 md:gap-4">
-          <DashboardIcon />
+    <div className="min-h-screen bg-slate-50 flex flex-col font-inter">
+      <header className="bg-slate-900 text-white p-6 shadow-xl flex justify-between items-center no-print">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-600 rounded-2xl shadow-lg shadow-emerald-500/20"><DashboardIcon /></div>
           <div>
-            <h1 className="text-sm md:text-lg font-black uppercase tracking-tight">{userRole === 'ZI' ? 'DAURA ZONAL HQ' : `${lgaContext} STATION`}</h1>
-            <p className="text-[8px] md:text-[9px] opacity-60 font-bold uppercase tracking-widest">NYSC Compliance Hub</p>
+            <h1 className="text-lg font-black uppercase tracking-tight">{userRole === 'ZI' ? 'DAURA ZONAL HQ' : `${lgaContext} STATION`}</h1>
+            <p className="text-[9px] font-bold opacity-60 tracking-[0.2em] uppercase">National Youth Service Corps</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          {currentView === 'DASHBOARD' && (
-            <>
-              <button onClick={() => downloadCSV(filteredEntries)} title="Download View CSV" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><DownloadIcon /></button>
-              <button onClick={handlePrintAll} title="Print View PDF" className="bg-white/10 hover:bg-white/20 p-2 md:p-3 rounded-xl transition-all"><FileTextIcon /></button>
-              <button onClick={() => shareViaWhatsApp(filteredEntries)} title="WhatsApp Sharing" className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 p-2 md:p-3 rounded-xl transition-all flex items-center gap-2">
-                <WhatsAppIcon />
-                <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Share View</span>
-              </button>
-            </>
-          )}
-          <button onClick={handleLogout} title="Logout" className="bg-white/10 hover:bg-red-500/30 p-2 md:p-3 rounded-xl transition-all"><LogOutIcon /></button>
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex flex-col items-end mr-4">
+            <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">{userRole} AUTHENTICATED</span>
+            <span className="text-[10px] text-white/50 font-bold">{new Date().toLocaleDateString()}</span>
+          </div>
+          <button onClick={handleLogout} className="p-3 bg-white/10 rounded-xl hover:bg-red-500/20 transition-all"><LogOutIcon /></button>
         </div>
       </header>
 
+      {/* Division Navigation Tabs (Conceptual Folders) */}
+      <nav className="bg-white border-b p-2 md:p-4 flex justify-center gap-2 md:gap-4 no-print overflow-x-auto">
+        {[
+          { id: 'CWHS', label: 'Corps Welfare (CW&HS)', color: 'border-b-blue-500' },
+          { id: 'CIM', label: 'Inspection (CIM)', color: 'border-b-amber-500' },
+          { id: 'SAED', label: 'SAED Division', color: 'border-b-purple-500' }
+        ].map(d => (
+          <button 
+            key={d.id}
+            onClick={() => setDivision(d.id as Division)}
+            className={`division-folder px-4 md:px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all whitespace-nowrap ${division === d.id ? `bg-emerald-800 text-white shadow-xl shadow-emerald-800/20 active` : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </nav>
+
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 space-y-8">
-        {/* PDF / Print Heading - Explicitly identifying report source for readers */}
-        <div className="print-only mb-10 text-center border-b-4 border-slate-900 pb-8">
-          <h1 className="text-3xl font-black uppercase tracking-tighter">NYSC DAURA ZONAL OFFICE</h1>
-          <p className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500 mt-2">Weekly Status Report • Official Document</p>
-          <div className="mt-6 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
-            <span className="bg-slate-900 text-white px-3 py-1 rounded">Confidential Report</span>
-            <span>Generated: {new Date().toLocaleDateString()}</span>
-            <span>Origin Station: {userRole === 'ZI' ? 'Zonal HQ' : `${lgaContext} Station`}</span>
-          </div>
-        </div>
-
-        {currentView === 'DASHBOARD' && (
-          <div className="space-y-8 animate-fade-in">
-            
-            {/* Summary Stats - ZI View Only */}
-            {userRole === 'ZI' && (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 no-print">
-                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col group hover:shadow-lg transition-all border-b-8 border-b-slate-900">
-                  <span className="text-slate-400 text-[9px] font-black uppercase tracking-widest mb-1">Station Total</span>
-                  <span className="text-4xl font-black text-slate-900 leading-none">{stats.TOTAL}</span>
-                </div>
-                {Object.values(ReportCategory).map(cat => (
-                  <div key={cat} className={`bg-white p-6 rounded-3xl border shadow-sm flex flex-col transition-all hover:scale-[1.02] border-b-8 ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[2] : 'border-slate-100 opacity-50'}`} style={{ borderBottomColor: stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1].replace('text-', '') : undefined }}>
-                    <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${CATEGORY_COLORS[cat].split(' ')[1]}`}>{cat}</span>
-                    <span className={`text-4xl font-black leading-none ${stats[cat] > 0 ? CATEGORY_COLORS[cat].split(' ')[1] : 'text-slate-300'}`}>{stats[cat]}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Sticky Actions Bar for Selections */}
-            {selectedIds.size > 0 && (
-              <div className="sticky top-20 z-40 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between animate-fade-in no-print">
-                <div className="flex items-center gap-4">
-                  <span className="bg-emerald-500 text-white font-black px-4 py-2 rounded-full text-xs">{selectedIds.size}</span>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Selected Records</span>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => shareViaWhatsApp(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                    <WhatsAppIcon /> WhatsApp
-                  </button>
-                  <button onClick={() => downloadCSV(selectedEntries)} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                    <DownloadIcon /> CSV
-                  </button>
-                  <button onClick={handlePrintSelection} className="bg-white/10 hover:bg-white/20 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                    <FileTextIcon /> PDF
-                  </button>
-                  <button onClick={() => setSelectedIds(new Set())} className="bg-red-500/20 text-red-400 hover:bg-red-500/30 px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest ml-2">Clear</button>
-                </div>
-              </div>
-            )}
-
-            {/* Filter Bar */}
-            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 no-print">
-              <div className="flex-1 flex gap-4">
-                 <button onClick={selectAll} className={`px-5 py-4 rounded-2xl text-[10px] font-black uppercase transition-all tracking-widest ${selectedIds.size === filteredEntries.length && filteredEntries.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                   {selectedIds.size === filteredEntries.length && filteredEntries.length > 0 ? 'Deselect All' : 'Select All'}
-                 </button>
-                 <div className="relative flex-1">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><SearchIcon /></span>
-                  <input type="text" placeholder="Search name or state code..." className="w-full pl-14 pr-6 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-bold placeholder:text-slate-300 focus:ring-2 focus:ring-emerald-500" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {userRole === 'ZI' && (
-                  <select 
-                    className="bg-emerald-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-emerald-800 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={filterLga}
-                    onChange={e => setFilterLga(e.target.value as any)}
-                  >
-                    <option value="ALL">All Stations (Zone)</option>
-                    {LGAS.map(lga => <option key={lga} value={lga}>{lga} Station</option>)}
-                  </select>
-                )}
-                
-                <select className="bg-slate-50 border-none rounded-2xl px-6 py-4 text-xs font-black uppercase text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500" value={filterCategory} onChange={e => setFilterCategory(e.target.value as any)}>
-                  <option value="ALL">All Categories</option>
-                  {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                
-                <button onClick={() => { setEditingEntry(null); setFormData({name:'', stateCode:'', category: ReportCategory.SICK, details:'', dateOfDeath: ''}); setCurrentView('FORM'); }} className="bg-emerald-800 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl hover:bg-emerald-900 transition-all active:scale-95"><PlusIcon /> New Entry</button>
-              </div>
-            </div>
-
-            {/* Record Grid */}
-            {entriesToDisplay.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {entriesToDisplay.map(entry => (
-                  <div 
-                    key={entry.id} 
-                    onClick={() => !isPrintOnlySelection && toggleSelect(entry.id)}
-                    className={`bg-white rounded-[2.5rem] border p-8 shadow-sm hover:shadow-2xl transition-all group relative border-t-[12px] flex flex-col justify-between cursor-pointer ${selectedIds.has(entry.id) && !isPrintOnlySelection ? 'ring-4 ring-emerald-500 border-emerald-500' : 'border-slate-100'}`} 
-                    style={{ borderTopColor: CATEGORY_COLORS[entry.category].split(' ')[1].replace('text-', '') }}
-                  >
-                    <div className={`absolute top-4 left-4 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all no-print ${selectedIds.has(entry.id) ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-slate-50 border-slate-200 text-transparent'}`}>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    </div>
-
-                    <div>
-                      <div className="flex items-start justify-between mb-6 pl-6">
-                        <div className={`p-4 rounded-2xl border ${CATEGORY_COLORS[entry.category]}`}>{CATEGORY_ICONS[entry.category]}</div>
-                        <span className="text-[10px] font-black bg-slate-50 text-slate-400 px-3 py-1.5 rounded-lg uppercase tracking-[0.2em]">{entry.lga}</span>
-                      </div>
-                      <div className="mb-6 pl-1">
-                        <h3 className="font-black text-slate-900 uppercase text-lg leading-tight mb-2 tracking-tight">{entry.name}</h3>
-                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{entry.stateCode}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      {((entry as any).dateOfDeath) && (
-                         <div className="text-[10px] font-black text-red-600 uppercase tracking-wider mb-2">DOD: {(entry as any).dateOfDeath}</div>
-                      )}
-                      {((entry as any).details) && (
-                        <p className="text-xs text-slate-500 italic line-clamp-3">"{(entry as any).details}"</p>
-                      )}
-                      <div className="pt-6 border-t border-slate-50 flex justify-between items-center text-[10px] font-black uppercase text-slate-400">
-                        <span className="flex items-center gap-2 tracking-widest font-bold"><FileTextIcon /> {entry.category}</span>
-                        <span className="opacity-60 font-bold">{new Date(entry.dateAdded).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex gap-2 justify-end no-print pt-2">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); shareViaWhatsApp([entry]); }} 
-                          title="WhatsApp Reporting"
-                          className="p-3 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-all"
-                        >
-                          <WhatsAppIcon />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); downloadCSV([entry]); }} 
-                          title="Download CSV"
-                          className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-slate-100 transition-all"
-                        >
-                          <DownloadIcon />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); setEditingEntry(entry); setFormData({name:entry.name, stateCode:entry.stateCode, category:entry.category, details:(entry as any).details || '', dateOfDeath: (entry as any).dateOfDeath || ''}); setCurrentView('FORM'); }} className="px-4 py-3 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-all">Edit</button>
-                        <button onClick={(e) => { e.stopPropagation(); if(confirm("Permanently delete this record?")) deleteReport(dbRef.current, entry.id)}} className="px-4 py-3 bg-slate-50 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-32 text-center bg-white rounded-[3rem] border border-slate-100 shadow-inner">
-                <div className="inline-flex p-8 bg-slate-50 rounded-full mb-6 text-slate-200"><DashboardIcon /></div>
-                <h3 className="text-xl font-black text-slate-300 uppercase tracking-[0.3em]">Operational Silence</h3>
-                <p className="text-slate-400 text-xs mt-3 uppercase font-bold tracking-widest">No matching records found in this view</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {currentView === 'FORM' && (
-          <div className="max-w-2xl mx-auto animate-fade-in pb-20 no-print">
-            <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
-              <div className="h-5 bg-emerald-800 w-full"></div>
-              <div className="p-12 space-y-10">
-                <div>
-                  <h2 className="text-4xl font-black uppercase text-slate-900 tracking-tighter mb-3 leading-none">{editingEntry ? 'Update Record' : 'Official Entry'}</h2>
-                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.4em] border-b pb-8 border-slate-100">National Youth Service Corps • Station Submission</p>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-10">
-                  <div className="space-y-8">
-                    <div className="space-y-3">
-                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Corps Member Name <span className="text-red-500">*</span></label>
-                      <input required className="w-full p-5 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-black text-lg text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase placeholder:text-slate-200" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} placeholder="FULL NAME AS PER OFFICIAL REGISTER" />
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">State Code <span className="text-red-500">*</span></label>
-                      <input required className="w-full p-5 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-black text-lg text-slate-800 focus:border-emerald-600 outline-none transition-all uppercase placeholder:text-slate-200" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} placeholder="E.G. KT/24A/0001" />
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Incident Category <span className="text-red-500">*</span></label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {Object.values(ReportCategory).map(c => (
-                          <label key={c} className={`flex items-center p-5 rounded-2xl border-2 cursor-pointer transition-all ${formData.category === c ? 'border-emerald-600 bg-emerald-50/30' : 'border-slate-50 bg-slate-50 hover:border-slate-200'}`}>
-                            <input type="radio" name="category" className="hidden" value={c} checked={formData.category === c} onChange={() => setFormData({...formData, category: c})} />
-                            <div className={`w-5 h-5 rounded-full border-2 mr-4 flex items-center justify-center ${formData.category === c ? 'border-emerald-600 bg-emerald-600 shadow-[0_0_10px_rgba(5,150,105,0.3)]' : 'border-slate-300'}`}>
-                              {formData.category === c && <div className="w-2 h-2 bg-white rounded-full"></div>}
-                            </div>
-                            <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">{c}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {formData.category === ReportCategory.DECEASED && (
-                      <div className="space-y-3 animate-fade-in">
-                        <label className="text-xs font-black uppercase tracking-widest text-red-700 ml-1">Date of Death <span className="text-red-500">*</span></label>
-                        <input type="date" required className="w-full p-5 bg-red-50 border-b-4 border-red-100 rounded-2xl font-black text-lg text-red-900 focus:border-red-600 outline-none transition-all" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
-                      </div>
-                    )}
-
-                    <div className="space-y-3">
-                      <label className="text-xs font-black uppercase tracking-widest text-slate-700 ml-1">Case Particulars / Remarks</label>
-                      <textarea className="w-full p-6 bg-slate-50 border-b-4 border-slate-100 rounded-2xl font-bold text-slate-800 focus:border-emerald-600 outline-none transition-all h-40 placeholder:text-slate-200" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} placeholder="PROVIDE DETAILED ACCOUNT OF INCIDENT, RELEVANT DATES, AND CURRENT STATUS..." />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row gap-5 pt-6">
-                    <button type="submit" className="flex-[2] bg-emerald-800 text-white p-6 rounded-2xl font-black uppercase text-xs tracking-[0.3em] shadow-2xl hover:bg-emerald-900 active:scale-95 transition-all">Validate & Submit</button>
-                    <button type="button" onClick={() => setCurrentView('DASHBOARD')} className="flex-1 bg-slate-100 text-slate-500 p-6 rounded-2xl font-black uppercase text-xs tracking-[0.3em] hover:bg-slate-200 transition-all">Discard</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+        {division === 'CWHS' && <CWHSModule entries={cwhsEntries} userRole={userRole!} lga={lgaContext!} db={dbRef.current} />}
+        {division === 'CIM' && <CIMModule entries={cimEntries} userRole={userRole!} lga={lgaContext!} db={dbRef.current} />}
+        {division === 'SAED' && <SAEDModule entries={saedEntries} userRole={userRole!} lga={lgaContext!} db={dbRef.current} />}
       </main>
 
-      <footer className="p-12 text-center bg-white border-t border-slate-100 no-print">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all duration-500">
-          <p className="text-slate-900 text-[10px] font-black uppercase tracking-[0.5em]">NYSC KATSINA STATE HQ • AUDIT PORTAL</p>
-          <div className="flex gap-8">
-            <span className="text-[10px] font-black uppercase tracking-widest">Secure Link Established</span>
-            <span className="text-[10px] font-black uppercase tracking-widest">© {new Date().getFullYear()}</span>
+      <footer className="p-8 text-center text-slate-300 no-print">
+        <p className="text-[9px] font-black uppercase tracking-[0.5em]">Division Data Management System • NYSC Katsina State</p>
+      </footer>
+    </div>
+  );
+};
+
+// --- Division Modules ---
+
+const CWHSModule = ({ entries, userRole, lga, db }: any) => {
+  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
+  const filtered = entries.filter((e: any) => userRole === 'ZI' ? true : e.lga === lga);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    try {
+      await addData(db, "nysc_reports", { ...formData, lga: lga || 'Daura' });
+      setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
+    } catch (err) { alert("Submission failed"); }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">Corps Welfare & Health Service (CW&HS)</h2>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Personnel Status & Emergency Tracking</p>
+        </div>
+        <div className="flex gap-4">
+          <div className="bg-white px-6 py-4 rounded-3xl border shadow-sm flex items-center gap-4">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active Cases</span>
+            <span className="text-3xl font-black text-emerald-800">{filtered.length}</span>
           </div>
         </div>
-      </footer>
+      </div>
 
-      <style>{`
-        @media print {
-          body { background: white !important; }
-          .no-print { display: none !important; }
-          main { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
-          .grid { display: block !important; }
-          .grid > div { 
-            margin-bottom: 2rem !important; 
-            page-break-inside: avoid !important; 
-            border: 2px solid #eee !important;
-            border-top: 10px solid #333 !important;
-            border-radius: 8px !important;
-            padding: 2rem !important;
-            box-shadow: none !important;
-          }
-          .animate-fade-in { animation: none !important; }
-        }
-      `}</style>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-1 no-print">
+          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
+            <h3 className="font-black uppercase mb-8 text-xs text-slate-800 border-b pb-4">New Welfare Case</h3>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Full Name</label>
+                <input required placeholder="E.G. JOHN DOE" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">State Code</label>
+                <input required placeholder="E.G. KT/24A/0001" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Status Category</label>
+                <select className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
+                  {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Case Details</label>
+                <textarea placeholder="PROVIDE CASE PARTICULARS..." className="w-full p-4 bg-slate-50 rounded-2xl h-32 font-medium outline-none focus:ring-2 focus:ring-emerald-500" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+              </div>
+              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-lg shadow-emerald-800/20 active:scale-95 transition-all">Record Incident</button>
+            </form>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 space-y-4">
+          {filtered.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map((e: any) => (
+                <div key={e.id} className="bg-white p-8 rounded-[2rem] border shadow-sm border-t-[10px] border-t-emerald-800 flex flex-col justify-between group">
+                  <div>
+                    <div className="flex justify-between items-start mb-4">
+                      <span className="text-[9px] font-black bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg uppercase tracking-widest">{e.category}</span>
+                      <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">{e.lga}</span>
+                    </div>
+                    <h4 className="font-black text-xl uppercase leading-tight text-slate-800 mb-1">{e.name}</h4>
+                    <p className="text-xs text-slate-400 font-bold tracking-widest">{e.stateCode}</p>
+                    <p className="mt-6 text-sm text-slate-500 italic leading-relaxed">"{e.details}"</p>
+                  </div>
+                  <div className="mt-8 pt-4 border-t flex justify-between items-center">
+                    <span className="text-[9px] font-bold text-slate-300">{new Date(e.dateAdded).toLocaleDateString()}</span>
+                    <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="text-slate-200 hover:text-red-500 transition-colors"><TrashIcon /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white p-20 rounded-[3rem] border-2 border-dashed border-slate-100 flex flex-col items-center justify-center text-center">
+              <div className="p-6 bg-slate-50 rounded-full mb-6 text-slate-200"><DashboardIcon /></div>
+              <h4 className="text-lg font-black text-slate-300 uppercase tracking-[0.2em]">All Systems Clear</h4>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">No welfare incidents currently recorded</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CIMModule = ({ entries, userRole, lga, db }: any) => {
+  const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
+  const filtered = entries.filter((e: any) => userRole === 'ZI' ? true : e.lga === lga);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    const unclearedList = formData.uncleared.split('\n').map(line => {
+      const parts = line.split(',').map(p => p.trim());
+      return { name: parts[0] || '', code: parts[1] || '', reason: parts[2] || 'Absent' };
+    }).filter(x => x.name);
+
+    try {
+      await addData(db, "cim_clearance", { 
+        month: formData.month, 
+        maleCount: Number(formData.maleCount),
+        femaleCount: Number(formData.femaleCount),
+        clearedCount: Number(formData.clearedCount),
+        unclearedList,
+        lga: lga || 'Daura'
+      });
+      setFormData({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
+    } catch (err) { alert("Submission failed"); }
+  };
+
+  const handleGenerateAIQuery = async (cm: any) => {
+    const queryTxt = await generateDisciplinaryQuery(cm.name, cm.code, cm.reason);
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(`
+        <html>
+          <head>
+            <title>Disciplinary Query - ${cm.name}</title>
+            <style>
+              body { font-family: serif; padding: 40px; max-width: 800px; margin: auto; line-height: 1.6; }
+              pre { white-space: pre-wrap; word-wrap: break-word; font-size: 14px; }
+              .header { text-align: center; border-bottom: 2px solid black; margin-bottom: 40px; padding-bottom: 20px; }
+              .stamp { margin-top: 60px; border: 1px solid #ccc; width: 200px; height: 80px; text-align: center; line-height: 80px; color: #eee; text-transform: uppercase; }
+              @media print { .no-print { display: none; } }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h2 style="margin:0; text-transform: uppercase;">National Youth Service Corps</h2>
+              <p style="margin:5px 0;">Division of Corps Inspection & Monitoring (CIM)</p>
+            </div>
+            <pre>${queryTxt}</pre>
+            <div class="stamp">Official Stamp</div>
+            <br/><br/>
+            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; cursor: pointer;">Print Document</button>
+          </body>
+        </html>
+      `);
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div>
+        <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">Corps Inspection & Monitoring (CIM)</h2>
+        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Monthly Clearance & Attendance Audit</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-1 no-print">
+          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
+            <h3 className="font-black uppercase mb-6 text-xs text-slate-800 border-b pb-4">Monthly Clearance Subm.</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400">Clearance Month</label>
+                <input type="month" required className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400">Male Count</label>
+                  <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: Number(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400">Female Count</label>
+                  <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: Number(e.target.value)})} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400">Cleared Successfully</label>
+                <input type="number" required placeholder="TOTAL CLEARED" className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" value={formData.clearedCount} onChange={e => setFormData({...formData, clearedCount: Number(e.target.value)})} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400">Uncleared (Name, Code, Reason)</label>
+                <textarea placeholder="Line format: NAME, CODE, REASON" className="w-full p-4 bg-slate-50 rounded-2xl h-40 text-xs font-mono outline-none" value={formData.uncleared} onChange={e => setFormData({...formData, uncleared: e.target.value})} />
+              </div>
+              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-lg active:scale-95 transition-all">Submit Audit</button>
+            </form>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 space-y-6">
+          {filtered.map((e: any) => (
+            <div key={e.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm border-l-[12px] border-l-amber-500">
+              <div className="flex justify-between items-start mb-8">
+                <div>
+                  <h4 className="font-black text-2xl text-slate-800 uppercase tracking-tighter">{new Date(e.month).toLocaleString('default', { month: 'long', year: 'numeric' })} Audit</h4>
+                  <p className="text-[10px] font-black text-amber-600 tracking-widest uppercase">{e.lga} STATION AUDIT LOG</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-black text-slate-900 leading-none">{e.maleCount + e.femaleCount}</div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Personnel Strength</div>
+                  <div className="text-[10px] font-bold text-slate-400 mt-2">MALE: {e.maleCount} | FEMALE: {e.femaleCount}</div>
+                </div>
+              </div>
+              
+              <div className="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100">
+                <div className="flex justify-between items-center text-[10px] font-black uppercase mb-4 tracking-widest">
+                  <span className="text-slate-500">Monthly Success Rate</span>
+                  <span className="text-emerald-600">{Math.round((e.clearedCount / (e.maleCount + e.femaleCount)) * 100)}% Cleared</span>
+                </div>
+                <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden shadow-inner">
+                  <div className="bg-emerald-500 h-full transition-all duration-1000" style={{ width: `${(e.clearedCount / (e.maleCount + e.femaleCount)) * 100}%` }}></div>
+                </div>
+                <p className="mt-4 text-[10px] font-bold text-slate-400 uppercase text-center">{e.clearedCount} of {e.maleCount + e.femaleCount} personnel cleared duty for this period</p>
+              </div>
+
+              {e.unclearedList?.length > 0 && (
+                <div>
+                  <h5 className="text-[10px] font-black text-red-600 uppercase mb-4 tracking-[0.2em] flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
+                    Disciplinary Flag List ({e.unclearedList.length})
+                  </h5>
+                  <div className="grid grid-cols-1 gap-3">
+                    {e.unclearedList.map((cm: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-4 bg-red-50/50 rounded-2xl border border-red-100 hover:bg-red-50 transition-colors">
+                        <div className="text-xs">
+                          <span className="font-black text-red-900 block uppercase">{cm.name}</span>
+                          <span className="text-[10px] font-bold text-slate-400 tracking-widest">{cm.code}</span>
+                          <p className="text-[10px] font-bold text-red-400 mt-1 uppercase italic">Reason: {cm.reason}</p>
+                        </div>
+                        <button onClick={() => handleGenerateAIQuery(cm)} className="bg-white px-4 py-2 rounded-xl text-[9px] font-black text-red-600 border border-red-200 shadow-sm hover:bg-red-600 hover:text-white transition-all whitespace-nowrap">GENERATE BYE-LAW QUERY</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SAEDModule = ({ entries, userRole, lga, db }: any) => {
+  const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
+  const filtered = entries.filter((e: any) => userRole === 'ZI' ? true : e.lga === lga);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    try {
+      await addData(db, "saed_centers", { ...formData, lga: lga || 'Daura' });
+      setFormData({ centerName: '', address: '', cmCount: 0, fee: 0 });
+    } catch (err) { alert("Registration failed"); }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div>
+        <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">Skill Acquisition & Entrep. Dev. (SAED)</h2>
+        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Post-Camp Training Registry</p>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="lg:col-span-1 no-print">
+          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm sticky top-32">
+            <h3 className="font-black uppercase mb-8 text-xs text-slate-800 border-b pb-4">Register Training Center</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400">Center Name</label>
+                <input required placeholder="E.G. DAURA FASHION HUB" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none focus:ring-2 focus:ring-emerald-500" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value})} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400">Location Address</label>
+                <input required placeholder="CENTER PHYSICAL ADDRESS" className="w-full p-4 bg-slate-50 rounded-2xl font-bold uppercase outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400">Enrolled CMs</label>
+                  <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" value={formData.cmCount} onChange={e => setFormData({...formData, cmCount: Number(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400">Training Fee (₦)</label>
+                  <input type="number" required placeholder="0" className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none" value={formData.fee} onChange={e => setFormData({...formData, fee: Number(e.target.value)})} />
+                </div>
+              </div>
+              <button className="w-full bg-emerald-800 text-white p-5 rounded-2xl font-black uppercase shadow-lg active:scale-95 transition-all">Save Registry</button>
+            </form>
+          </div>
+        </div>
+
+        <div className="lg:col-span-3">
+          {filtered.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filtered.map((c: any) => (
+                <div key={c.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm border-l-[15px] border-l-purple-600 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <DashboardIcon />
+                  </div>
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h4 className="font-black text-xl uppercase tracking-tight text-slate-800 leading-none mb-2">{c.centerName}</h4>
+                      <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest">{c.lga} STATION REGISTRY</p>
+                    </div>
+                    <div className="bg-purple-50 text-purple-700 px-4 py-2 rounded-2xl text-[10px] font-black border border-purple-100">₦{c.fee.toLocaleString()}</div>
+                  </div>
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500 flex items-start gap-2 italic leading-relaxed">
+                      <SearchIcon /> {c.address}
+                    </p>
+                    <div className="flex justify-between items-center pt-6 border-t">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-xs font-black text-slate-400">{c.cmCount}</div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Active Trainees</span>
+                      </div>
+                      <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-slate-50 text-slate-300 rounded-xl hover:bg-red-50 hover:text-red-500 transition-all"><TrashIcon /></button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white p-32 rounded-[3rem] border-2 border-dashed border-slate-100 text-center">
+              <h4 className="text-lg font-black text-slate-300 uppercase tracking-widest">No SAED Centers Registered</h4>
+              <p className="text-xs text-slate-400 font-bold uppercase mt-2">Begin registry by adding a center in your local government</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
