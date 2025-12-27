@@ -57,6 +57,23 @@ const exportToCSV = (filename: string, rows: any[]) => {
   document.body.removeChild(link);
 };
 
+// --- Multi-select hook ---
+const useMultiSelect = (items: any[]) => {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectAll = () => setSelectedIds(new Set(items.map(i => i.id)));
+
+  return { selectedIds, toggleSelect, clearSelection, selectAll };
+};
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
   const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
@@ -111,7 +128,6 @@ const App: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  // --- Filtering Logic for Summary ---
   const currentFilteredData = useMemo(() => {
     const filterFn = (items: any[]) => {
       if (userRole === 'LGI') return items.filter(i => i.lga === lgaContext);
@@ -320,19 +336,16 @@ const SummaryCard = ({ title, value, subtitle, icon, color }: any) => (
   </div>
 );
 
-// --- Multi-select logic ---
-const useMultiSelect = (items: any[]) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
-  };
-  const clearSelection = () => setSelectedIds(new Set());
-  const selectAll = () => setSelectedIds(new Set(items.map(i => i.id)));
-  return { selectedIds, toggleSelect, clearSelection, selectAll };
-};
+const SelectionToolbar = ({ count, total, onClear, onSelectAll, colorClass = "bg-emerald-50 text-emerald-800" }: any) => (
+  <div className={`${colorClass} border border-opacity-20 p-3 rounded-2xl flex justify-between items-center no-print animate-fade-in shadow-sm`}>
+    <div className="flex items-center gap-4">
+      <span className="text-[10px] font-black uppercase tracking-widest ml-2">{count} Items Selected</span>
+      <div className="h-4 w-px bg-current opacity-20"></div>
+      <button onClick={onSelectAll} className="text-[10px] font-black uppercase hover:underline">Select All ({total})</button>
+    </div>
+    <button onClick={onClear} className="text-[10px] font-black uppercase hover:underline opacity-60">Clear Selection</button>
+  </div>
+);
 
 const CWHSModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
@@ -344,7 +357,7 @@ const CWHSModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
     return base;
   }, [entries, userRole, lga, ziFilter]);
 
-  const { selectedIds, toggleSelect, clearSelection } = useMultiSelect(filtered);
+  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(filtered);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -361,19 +374,23 @@ const CWHSModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
 
     if (itemsToShare.length === 0) return;
 
-    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - CW&HS REPORT*\n`;
-    text += `Date: ${new Date().toLocaleDateString()}\n\n`;
+    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - CW&HS WEEKLY REPORT*\n`;
+    if (userRole === 'LGI') text += `*TO: THE ZONAL INSPECTOR, DAURA*\n`;
+    text += `Date: ${new Date().toLocaleDateString()}\n`;
+    text += `Scope: ${selectedIds.size > 0 ? `Selected Cases (${selectedIds.size})` : `Full Station Report`}\n\n`;
     
     itemsToShare.forEach((e: any, i: number) => {
       text += `${i + 1}. *${e.name.toUpperCase()}* (${e.stateCode})\n`;
-      text += `🚨 Status: ${e.category}\n`;
+      text += `🚨 STATUS: ${e.category.toUpperCase()}\n`;
       if (e.category === ReportCategory.DECEASED && e.dateOfDeath) {
-        text += `✝️ Date of Death: ${e.dateOfDeath}\n`;
+        text += `✝️ DATE OF DEATH: ${e.dateOfDeath}\n`;
       }
-      text += `📝 Details: ${e.details || 'N/A'}\n`;
-      if (userRole === 'ZI') text += `📍 Station: ${e.lga}\n`;
+      text += `📝 DETAILS: ${e.details || 'N/A'}\n`;
+      if (userRole === 'ZI') text += `📍 STATION: ${e.lga}\n`;
       text += `------------------\n`;
     });
+    
+    text += `\n*End of Report*`;
     onShare(text);
   };
 
@@ -381,8 +398,6 @@ const CWHSModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
     const items = selectedIds.size > 0 ? filtered.filter((e: any) => selectedIds.has(e.id)) : filtered;
     exportToCSV(`CWHS_Report_${new Date().toISOString().split('T')[0]}`, items);
   };
-
-  const handlePrint = () => window.print();
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -392,23 +407,26 @@ const CWHSModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
           <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Personnel Status Tracking</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
-          <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-slate-900 transition-all font-black uppercase text-[9px] tracking-widest">
+          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-slate-900 transition-all font-black uppercase text-[9px] tracking-widest">
             <FileTextIcon /> PDF Report
           </button>
           <button onClick={handleExportCSV} className="bg-slate-200 text-slate-700 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-300 transition-all font-black uppercase text-[9px] tracking-widest">
             <DownloadIcon /> CSV
           </button>
-          <button onClick={handleShare} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-[9px] tracking-widest">
-            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share All'}
+          <button onClick={handleShare} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-[9px] tracking-widest relative overflow-hidden">
+            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share View'}
           </button>
         </div>
       </div>
 
-      {selectedIds.size > 0 && (
-        <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-2xl flex justify-between items-center no-print">
-          <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest ml-2">{selectedIds.size} Records Selected</span>
-          <button onClick={clearSelection} className="text-[10px] font-black text-emerald-600 uppercase hover:underline">Clear Selection</button>
-        </div>
+      {filtered.length > 0 && (
+        <SelectionToolbar 
+          count={selectedIds.size} 
+          total={filtered.length} 
+          onClear={clearSelection} 
+          onSelectAll={selectAll}
+          colorClass="bg-emerald-50 text-emerald-800 border-emerald-200"
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -501,7 +519,7 @@ const CIMModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
     return base;
   }, [entries, userRole, lga, ziFilter]);
 
-  const { selectedIds, toggleSelect, clearSelection } = useMultiSelect(filtered);
+  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(filtered);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -530,17 +548,22 @@ const CIMModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
 
     if (itemsToShare.length === 0) return;
 
-    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - CIM AUDIT LOG*\n\n`;
+    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - CIM AUDIT REPORT*\n`;
+    if (userRole === 'LGI') text += `*TO: THE ZONAL INSPECTOR, DAURA*\n`;
+    text += `Date: ${new Date().toLocaleDateString()}\n\n`;
 
     itemsToShare.forEach((latest: any) => {
       text += `📅 *MONTH:* ${new Date(latest.month).toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase()}\n`;
       text += `📍 Station: ${latest.lga}\n`;
+      text += `👥 Strength: ${latest.maleCount + latest.femaleCount} (M:${latest.maleCount}, F:${latest.femaleCount})\n`;
       text += `✅ Cleared: ${latest.clearedCount} (${Math.round((latest.clearedCount / (latest.maleCount + latest.femaleCount)) * 100)}%)\n`;
       if (latest.unclearedList?.length > 0) {
         text += `🚩 Flags: ${latest.unclearedList.length} Personnel\n`;
       }
       text += `\n`;
     });
+    
+    text += `*End of Log*`;
     onShare(text);
   };
 
@@ -564,16 +587,19 @@ const CIMModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
             <DownloadIcon /> CSV
           </button>
           <button onClick={handleShare} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-[9px] tracking-widest">
-            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share All'}
+            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share View'}
           </button>
         </div>
       </div>
 
-      {selectedIds.size > 0 && (
-        <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl flex justify-between items-center no-print">
-          <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest ml-2">{selectedIds.size} Audits Selected</span>
-          <button onClick={clearSelection} className="text-[10px] font-black text-amber-600 uppercase hover:underline">Clear Selection</button>
-        </div>
+      {filtered.length > 0 && (
+        <SelectionToolbar 
+          count={selectedIds.size} 
+          total={filtered.length} 
+          onClear={clearSelection} 
+          onSelectAll={selectAll}
+          colorClass="bg-amber-50 text-amber-800 border-amber-200"
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -673,7 +699,7 @@ const SAEDModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
     return base;
   }, [entries, userRole, lga, ziFilter]);
 
-  const { selectedIds, toggleSelect, clearSelection } = useMultiSelect(filtered);
+  const { selectedIds, toggleSelect, clearSelection, selectAll } = useMultiSelect(filtered);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -690,15 +716,20 @@ const SAEDModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
 
     if (itemsToShare.length === 0) return;
 
-    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - SAED REGISTRY*\n\n`;
+    let text = `*NYSC ${userRole === 'ZI' ? 'ZONAL HQ' : lga} - SAED REGISTRY*\n`;
+    if (userRole === 'LGI') text += `*TO: THE ZONAL INSPECTOR, DAURA*\n`;
+    text += `Date: ${new Date().toLocaleDateString()}\n\n`;
 
     itemsToShare.forEach((c: any, i: number) => {
       text += `${i + 1}. *${c.centerName.toUpperCase()}*\n`;
       text += `📍 Location: ${c.address}\n`;
-      text += `💰 Fee: ₦${c.fee.toLocaleString()}\n`;
+      text += `🎓 Trainees: ${c.cmCount}\n`;
+      text += `💰 Training Fee: ₦${c.fee.toLocaleString()}\n`;
       if (userRole === 'ZI') text += `🏘 Station: ${c.lga}\n`;
       text += `------------------\n`;
     });
+    
+    text += `*End of Registry*`;
     onShare(text);
   };
 
@@ -722,16 +753,19 @@ const SAEDModule = ({ entries, userRole, lga, ziFilter, db, onShare }: any) => {
             <DownloadIcon /> CSV
           </button>
           <button onClick={handleShare} className="bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 hover:bg-emerald-700 transition-all font-black uppercase text-[9px] tracking-widest">
-            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share All'}
+            <WhatsAppIcon /> {selectedIds.size > 0 ? `Share (${selectedIds.size})` : 'Share View'}
           </button>
         </div>
       </div>
 
-      {selectedIds.size > 0 && (
-        <div className="bg-purple-50 border border-purple-100 p-3 rounded-2xl flex justify-between items-center no-print">
-          <span className="text-[10px] font-black text-purple-800 uppercase tracking-widest ml-2">{selectedIds.size} Centers Selected</span>
-          <button onClick={clearSelection} className="text-[10px] font-black text-purple-600 uppercase hover:underline">Clear Selection</button>
-        </div>
+      {filtered.length > 0 && (
+        <SelectionToolbar 
+          count={selectedIds.size} 
+          total={filtered.length} 
+          onClear={clearSelection} 
+          onSelectAll={selectAll}
+          colorClass="bg-purple-50 text-purple-800 border-purple-200"
+        />
       )}
       
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
