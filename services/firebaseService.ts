@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { 
   getFirestore, 
   collection, 
@@ -20,7 +20,13 @@ export const initFirebase = (config: any): Firestore => {
   
   try {
     const apps = getApps();
-    const app = apps.length === 0 ? initializeApp(config) : apps[0];
+    const app: FirebaseApp = apps.length === 0 ? initializeApp(config) : apps[0];
+    
+    if (!app) {
+      throw new Error("Firebase app could not be initialized.");
+    }
+
+    // Explicitly pass the app instance to getFirestore to ensure correct service binding
     dbInstance = getFirestore(app);
     return dbInstance;
   } catch (error) {
@@ -30,7 +36,7 @@ export const initFirebase = (config: any): Firestore => {
 };
 
 const normalizeValue = (val: any): any => {
-  if (!val) return val;
+  if (val === null || val === undefined) return val;
   if (typeof val.toDate === 'function') return val.toDate().toISOString();
   if (Array.isArray(val)) return val.map(normalizeValue);
   if (typeof val === 'object') {
@@ -51,7 +57,7 @@ export const subscribeToCollection = (
   onUpdate: (data: any[]) => void
 ) => {
   if (!database) {
-    console.error("Database not provided for subscription:", collectionName);
+    console.warn("Database not provided for subscription:", collectionName);
     return () => {};
   }
   
@@ -72,8 +78,8 @@ export const subscribeToCollection = (
   }
 };
 
-export const addData = async (database: Firestore, collectionName: string, data: any) => {
-  if (!database) throw new Error("Database not initialized");
+export const addData = async (database: Firestore | null, collectionName: string, data: any) => {
+  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
   return await addDoc(collection(database, collectionName), {
     ...data,
     dateAdded: new Date().toISOString(),
@@ -81,13 +87,13 @@ export const addData = async (database: Firestore, collectionName: string, data:
   });
 };
 
-export const updateData = async (database: Firestore, collectionName: string, id: string, data: any) => {
-  if (!database) throw new Error("Database not initialized");
+export const updateData = async (database: Firestore | null, collectionName: string, id: string, data: any) => {
+  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
   const ref = doc(database, collectionName, id);
   return await updateDoc(ref, { ...data, _lastModified: serverTimestamp() });
 };
 
-export const deleteData = async (database: Firestore, collectionName: string, id: string) => {
-  if (!database) throw new Error("Database not initialized");
+export const deleteData = async (database: Firestore | null, collectionName: string, id: string) => {
+  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
   return await deleteDoc(doc(database, collectionName, id));
 };
