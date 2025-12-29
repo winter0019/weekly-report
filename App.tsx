@@ -191,8 +191,11 @@ const App: React.FC = () => {
 
           <div className="flex flex-col items-end mt-20">
             <div className="w-48 border-b border-slate-900 mb-2"></div>
-            <p className="font-bold uppercase text-xs">For: State Coordinator</p>
-            <p className="text-[10px] text-slate-500 italic">This is a system generated report from NYSC Katsina Secretariat Portal</p>
+            <p className="font-bold uppercase text-xs">
+              {userRole === 'ZI' ? 'Zonal Inspector' : `(LGI ${lgaContext} for Zonal Inspector)`}
+            </p>
+            <p className="text-[10px] text-slate-500 italic mt-2">For: State Coordinator</p>
+            <p className="text-[9px] text-slate-400 mt-4">This is a system generated report from NYSC Katsina Secretariat Portal</p>
           </div>
 
           <div className="mt-20 flex justify-center gap-4 no-print">
@@ -231,7 +234,9 @@ const App: React.FC = () => {
 
           <div className="flex flex-col items-end space-y-2 font-bold mb-20 mr-4">
             <div className="w-48 border-b-2 border-slate-900"></div>
-            <p className="uppercase text-sm">Local Government Inspector</p>
+            <p className="uppercase text-sm">
+              {userRole === 'ZI' ? 'Zonal Inspector' : `(LGI ${lgaContext} for Zonal Inspector)`}
+            </p>
             <p className="uppercase text-xs text-slate-500">For: State Coordinator (Katsina)</p>
           </div>
 
@@ -670,7 +675,8 @@ const SAEDModule = ({ entries, db, onShare, setPrintView, userRole }: any) => {
             <div key={c.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-xl flex flex-col justify-between relative transition-all ${selectedIds.includes(c.id) ? 'border-purple-500 ring-4 ring-purple-500/10' : 'border-slate-200'}`}>
                 <div className="absolute top-8 right-8 no-print flex items-center gap-4">
                   <button title="Individual CSV" onClick={() => downloadCSV([c], c.centerName, ['centerName', 'address', 'cmCount', 'fee', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
-                  <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(i => i !== c.id) : [...prev, c.id])} className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer" />
+                  {/* Fix: Replaced undefined 'i' and 'e' with the correct current item 'c' in the map scope */}
+                  <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer" />
                 </div>
                 <div>
                 <span className="bg-purple-50 text-purple-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-purple-200">₦{c.fee}</span>
