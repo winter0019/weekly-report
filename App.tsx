@@ -112,15 +112,14 @@ const App: React.FC = () => {
               <div className="w-20 h-20">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/NYSC_logo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
               </div>
-              <div className="text-left">
+              <div className="text-left mt-1">
                 <h1 className="text-2xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
-                <p className="text-md font-bold text-red-600 uppercase tracking-wide leading-none font-serif-heading">Office of the State Coordinator</p>
-                <p className="text-sm font-bold text-red-600 uppercase tracking-widest font-serif-heading">Katsina State Secretariat</p>
+                <p className="text-lg font-bold text-red-600 uppercase tracking-widest leading-none font-serif-heading">Katsina State Secretariat</p>
               </div>
             </div>
-            <div className="text-right text-[9px] font-bold text-slate-700 leading-tight">
-              <p>Mani Road, Opposite Old Government House</p>
-              <p>Katsina, Katsina State</p>
+            <div className="text-right text-[10px] font-bold text-slate-700 leading-tight">
+              <p>Mani Road, Katsina</p>
+              <p>Katsina State</p>
               <p className="mt-2">Ref: NYSC/KTS/ADMIN/{new Date().getFullYear()}</p>
             </div>
           </div>
@@ -216,14 +215,12 @@ const App: React.FC = () => {
               </div>
               <div className="text-left mt-2">
                 <h1 className="text-3xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
-                <p className="text-lg font-bold text-red-600 uppercase tracking-wide leading-none font-serif-heading">Office of the State Coordinator</p>
                 <p className="text-base font-bold text-red-600 uppercase tracking-widest font-serif-heading">Katsina State Secretariat</p>
               </div>
             </div>
             <div className="text-right text-[10px] font-bold text-slate-700 leading-tight pt-2">
-              <p>Mani Road, Opposite Old Government House</p>
-              <p>Katsina Office Complex</p>
-              <p>Katsina, Katsina State</p>
+              <p>Mani Road, Katsina</p>
+              <p>Katsina State</p>
               <p className="mt-2 text-slate-400">Date: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
             </div>
           </div>
@@ -343,6 +340,7 @@ const App: React.FC = () => {
             db={dbRef.current} 
             onShare={(txt: string) => window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank')}
             setPrintView={(data: any) => setPrintData(data)}
+            userRole={userRole}
           />
         )}
         {division === 'CIM' && (
@@ -364,6 +362,7 @@ const App: React.FC = () => {
             }}
             loading={isGenerating}
             setPrintView={(data: any) => setPrintData(data)}
+            userRole={userRole}
           />
         )}
         {division === 'SAED' && (
@@ -373,6 +372,7 @@ const App: React.FC = () => {
             db={dbRef.current} 
             onShare={(txt: string) => window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank')}
             setPrintView={(data: any) => setPrintData(data)}
+            userRole={userRole}
           />
         )}
       </main>
@@ -427,7 +427,7 @@ const Header = ({ title, sub }: { title: string, sub: string }) => (
 
 // --- Modules ---
 
-const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
+const CWHSModule = ({ entries, lga, db, onShare, setPrintView, userRole }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -457,9 +457,11 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
     <div className="animate-official space-y-12 pb-32">
       <div className="flex justify-between items-end no-print">
         <Header title="CW&HS" sub="Welfare and health registry" />
-        <button onClick={() => setPrintView({ title: 'CW&HS Full Zonal Report', items: entries, type: 'CWHS' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
-          <FileTextIcon /> Full Gazette
-        </button>
+        {userRole === 'ZI' && (
+          <button onClick={() => setPrintView({ title: 'CW&HS Full Zonal Report', items: entries, type: 'CWHS' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
+            <FileTextIcon /> Full Zonal Gazette
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -491,13 +493,13 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
         </div>
         <div className="lg:col-span-8 space-y-8">
           <div className="flex justify-between items-center px-4 no-print">
-            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select Page</button>
+            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select All Page</button>
             <span className="text-[10px] font-black uppercase text-slate-300">{entries.length} Active Records</span>
           </div>
           {entries.map((e: any) => (
             <div key={e.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-lg relative transition-all ${selectedIds.includes(e.id) ? 'border-emerald-500 ring-4 ring-emerald-500/10' : 'border-slate-200'}`}>
               <div className="absolute top-8 right-8 no-print flex items-center gap-4">
-                <button onClick={() => downloadCSV([e], e.name, ['name', 'stateCode', 'category', 'dateOfDeath', 'details', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                <button title="Individual CSV" onClick={() => downloadCSV([e], e.name, ['name', 'stateCode', 'category', 'dateOfDeath', 'details', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
                 <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className="w-6 h-6 accent-emerald-600 rounded-lg cursor-pointer" />
               </div>
               <div className="flex justify-between items-start mb-4 pr-24">
@@ -511,7 +513,8 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
               <p className="text-sm font-bold text-emerald-800 mb-4">{e.stateCode}</p>
               <p className="text-slate-600 italic">"{e.details}"</p>
               <div className="mt-6 pt-4 border-t flex justify-end gap-3 no-print">
-                <button onClick={() => onShare(`CM: ${e.name} (${e.stateCode})\nStatus: ${e.category}${e.dateOfDeath ? ` on ${e.dateOfDeath}` : ''}\nDetails: ${e.details}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all"><WhatsAppIcon /></button>
+                <button title="Individual WhatsApp" onClick={() => onShare(`CM: ${e.name} (${e.stateCode})\nStatus: ${e.category}${e.dateOfDeath ? ` on ${e.dateOfDeath}` : ''}\nDetails: ${e.details}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all"><WhatsAppIcon /></button>
+                <button title="Individual PDF" onClick={() => setPrintView({ title: `Welfare Record: ${e.name}`, items: [e], type: 'CWHS' })} className="p-3 bg-slate-50 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"><FileTextIcon /></button>
                 <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
               </div>
             </div>
@@ -523,7 +526,7 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
   );
 };
 
-const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintView }: any) => {
+const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintView, userRole }: any) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -547,7 +550,15 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
 
   return (
     <div className="animate-official space-y-12 pb-32">
-      <Header title="CIM" sub="Inspection and monitoring records" />
+      <div className="flex justify-between items-end no-print">
+        <Header title="CIM" sub="Inspection and monitoring records" />
+        {userRole === 'ZI' && (
+          <button onClick={() => setPrintView({ title: 'CIM Full Zonal Audit Report', items: entries, type: 'CIM' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
+            <FileTextIcon /> Zonal Audit Gazette
+          </button>
+        )}
+      </div>
+      
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         <div className="lg:col-span-4 no-print">
           <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl">
@@ -566,12 +577,12 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
         </div>
         <div className="lg:col-span-8 space-y-10">
           <div className="flex justify-between items-center px-4 no-print">
-            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select Page</button>
+            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select All Page</button>
           </div>
           {entries.map((e: any) => (
             <div key={e.id} className={`bg-white rounded-[2.5rem] border-2 shadow-xl overflow-hidden transition-all relative ${selectedIds.includes(e.id) ? 'border-emerald-500 ring-4 ring-emerald-500/10' : 'border-slate-200'}`}>
                <div className="absolute top-8 right-8 no-print flex items-center gap-4">
-                 <button onClick={() => downloadCSV([e], `CIM_${e.lga}_${e.month}`, ['month', 'lga', 'maleCount', 'femaleCount', 'clearedCount'])} className="p-2 text-slate-400 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                 <button title="Individual CSV" onClick={() => downloadCSV([e], `CIM_${e.lga}_${e.month}`, ['month', 'lga', 'maleCount', 'femaleCount', 'clearedCount'])} className="p-2 text-slate-400 hover:text-blue-600 transition-all"><DownloadIcon /></button>
                  <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className="w-6 h-6 accent-emerald-400 rounded-lg cursor-pointer" />
               </div>
                <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
@@ -596,8 +607,10 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
                       </button>
                    </div>
                  ))}
-                 <div className="flex justify-end pt-4 no-print border-t border-slate-100">
-                    <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="text-[10px] font-black uppercase text-red-400 hover:text-red-700">Delete Record</button>
+                 <div className="flex justify-end pt-4 no-print border-t border-slate-100 items-center gap-4">
+                    <button title="WhatsApp Audit Summary" onClick={() => onShare(`CIM Audit Summary [${e.lga} ${e.month}]\nCleared: ${e.clearedCount}/${e.maleCount+e.femaleCount}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100"><WhatsAppIcon /></button>
+                    <button title="PDF Audit Summary" onClick={() => setPrintView({ title: `Audit Record: ${e.lga} (${e.month})`, items: [e], type: 'CIM' })} className="p-3 bg-slate-50 text-slate-700 rounded-xl hover:bg-slate-200"><FileTextIcon /></button>
+                    <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="text-[10px] font-black uppercase text-red-400 hover:text-red-700 ml-4">Delete Record</button>
                  </div>
                </div>
             </div>
@@ -609,7 +622,7 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
   );
 };
 
-const SAEDModule = ({ entries, db, onShare, setPrintView }: any) => {
+const SAEDModule = ({ entries, db, onShare, setPrintView, userRole }: any) => {
   const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -629,7 +642,15 @@ const SAEDModule = ({ entries, db, onShare, setPrintView }: any) => {
 
   return (
     <div className="animate-official space-y-12 pb-32">
-      <Header title="SAED" sub="Skill hub enrollment" />
+      <div className="flex justify-between items-end no-print">
+        <Header title="SAED" sub="Skill hub enrollment" />
+        {userRole === 'ZI' && (
+          <button onClick={() => setPrintView({ title: 'SAED Full Zonal Enrollment Report', items: entries, type: 'SAED' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
+            <FileTextIcon /> Full SAED Gazette
+          </button>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         <div className="lg:col-span-4 no-print">
           <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl">
@@ -648,7 +669,7 @@ const SAEDModule = ({ entries, db, onShare, setPrintView }: any) => {
           {entries.map((c: any) => (
             <div key={c.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-xl flex flex-col justify-between relative transition-all ${selectedIds.includes(c.id) ? 'border-purple-500 ring-4 ring-purple-500/10' : 'border-slate-200'}`}>
                 <div className="absolute top-8 right-8 no-print flex items-center gap-4">
-                  <button onClick={() => downloadCSV([c], c.centerName, ['centerName', 'address', 'cmCount', 'fee', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                  <button title="Individual CSV" onClick={() => downloadCSV([c], c.centerName, ['centerName', 'address', 'cmCount', 'fee', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
                   <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(i => i !== c.id) : [...prev, c.id])} className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer" />
                 </div>
                 <div>
@@ -658,8 +679,10 @@ const SAEDModule = ({ entries, db, onShare, setPrintView }: any) => {
               </div>
               <div className="mt-8 pt-4 border-t flex justify-between items-center">
                  <span className="text-[10px] font-black uppercase text-slate-400">Enrollment: {c.cmCount}</span>
-                 <div className="flex gap-2 no-print">
-                   <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
+                 <div className="flex gap-2 no-print items-center">
+                   <button title="Individual WhatsApp Hub" onClick={() => onShare(`Hub: ${c.centerName} (${c.lga})\nEnrollment: ${c.cmCount}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all"><WhatsAppIcon /></button>
+                   <button title="Individual PDF Hub" onClick={() => setPrintView({ title: `Hub Record: ${c.centerName}`, items: [c], type: 'SAED' })} className="p-3 bg-slate-50 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"><FileTextIcon /></button>
+                   <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all ml-2"><TrashIcon /></button>
                  </div>
               </div>
             </div>
