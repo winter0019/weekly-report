@@ -51,9 +51,10 @@ const App: React.FC = () => {
   const [cdrEntries, setCdrEntries] = useState<CDRCase[]>([]);
   
   const [activeQuery, setActiveQuery] = useState<{ content: string, cm: any, lga: string, ppa: string } | null>(null);
-  const [printData, setPrintData] = useState<{ title: string; items: any[]; type: Division } | null>(null);
+  const [printData, setPrintData] = useState<{ title: string; items: any[]; type: Division | 'GAZETTE' } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [reportFrequency, setReportFrequency] = useState<'Weekly' | 'Monthly' | 'Quarterly'>('Weekly');
   
   const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState(false);
@@ -92,7 +93,9 @@ const App: React.FC = () => {
       localStorage.setItem('daura_auth', 'true');
       localStorage.setItem('daura_role', pendingLogin.role);
       if (pendingLogin.lga) localStorage.setItem('daura_lga', pendingLogin.lga);
-    } else setLoginError(true);
+    } else {
+      setLoginError(true);
+    }
   };
 
   const handleLogout = () => {
@@ -135,104 +138,198 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, userRole, lgaContext, ziStationFilter, searchQuery]);
 
+  const handleGenerateGazette = (frequency: 'Weekly' | 'Monthly' | 'Quarterly') => {
+    setPrintData({
+      title: `${frequency} Official Report`,
+      items: [
+        { section: 'Section A: CW&HS Welfare Records', data: filteredData.cwhs, type: 'CWHS' },
+        { section: 'Section B: CIM Audit Records', data: filteredData.cim, type: 'CIM' },
+        { section: 'Section C: CDR Discipline Registry', data: filteredData.cdr, type: 'CDR' },
+        { section: 'Section D: SAED Hub Publication', data: filteredData.saed, type: 'SAED' }
+      ],
+      type: 'GAZETTE'
+    });
+  };
+
   if (printData) {
     return (
-      <div className="min-h-screen bg-white p-10 font-official-document text-slate-900">
-        <div className="max-w-5xl mx-auto border-2 border-slate-200 p-8 shadow-sm">
+      <div className="min-h-screen bg-white p-6 md:p-12 font-official-document text-slate-900 overflow-auto">
+        <div className="max-w-5xl mx-auto border-2 border-slate-200 p-10 shadow-sm print-shadow-none">
           <div className="flex justify-between items-start mb-8 pb-4 border-b-4 border-emerald-800">
             <div className="flex items-start gap-4">
-              <div className="w-20 h-20">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/NYSC_logo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
+              <div className="w-24 h-24">
+                <img src="/nyscLogo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
               </div>
-              <div className="text-left mt-1">
-                <h1 className="text-2xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
-                <p className="text-lg font-bold text-red-600 uppercase tracking-widest leading-none font-serif-heading">Katsina State Secretariat</p>
+              <div className="text-left mt-2">
+                <h1 className="text-3xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
+                <p className="text-xl font-bold text-red-600 uppercase tracking-widest leading-none font-serif-heading">Katsina State Secretariat</p>
+                <p className="text-sm font-black text-slate-800 uppercase mt-2 tracking-tighter">DAURA ZONAL OFFICE</p>
               </div>
             </div>
-            <div className="text-right text-[10px] font-bold text-slate-700 leading-tight">
+            <div className="text-right text-xs font-bold text-slate-700 leading-tight">
               <p>Mani Road, Katsina</p>
               <p>Katsina State</p>
-              <p className="mt-2">Ref: NYSC/KTS/ADMIN/{new Date().getFullYear()}</p>
+              <p className="mt-4 font-black text-emerald-900 uppercase">Date: {new Date().toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+              <p className="mt-1">REF: NYSC/KTS/DAU/OFF/{new Date().getFullYear()}/001</p>
             </div>
           </div>
 
-          <div className="mb-8">
-            <h2 className="text-xl font-black uppercase text-center border-b-2 border-slate-900 pb-2 mb-4 font-serif-heading">
+          <div className="mb-12 text-center">
+            <h2 className="text-4xl font-black uppercase border-y-4 border-slate-900 py-6 mb-8 font-serif-heading tracking-widest leading-tight">
               {printData.title}
             </h2>
+            <p className="text-xs font-bold italic text-slate-500 uppercase">Classified Information - For Official Use Only</p>
+          </div>
+
+          {printData.type === 'GAZETTE' ? (
+            <div className="space-y-16">
+              {printData.items.map((section: any, sIdx: number) => (
+                <div key={sIdx} className="break-inside-avoid">
+                  <h3 className="text-2xl font-black uppercase text-emerald-900 border-b-2 border-emerald-900 mb-6 pb-2 font-serif-heading">
+                    {section.section}
+                  </h3>
+                  <table className="w-full text-xs border-collapse border border-slate-400">
+                    <thead>
+                      <tr className="bg-slate-100">
+                        <th className="border border-slate-400 p-3 text-left w-12">S/N</th>
+                        {section.type === 'CWHS' && <>
+                          <th className="border border-slate-400 p-3 text-left">CM Name</th>
+                          <th className="border border-slate-400 p-3 text-left">State Code</th>
+                          <th className="border border-slate-400 p-3 text-left">Status</th>
+                          <th className="border border-slate-400 p-3 text-left">LGA</th>
+                        </>}
+                        {section.type === 'CIM' && <>
+                          <th className="border border-slate-400 p-3 text-left">Month</th>
+                          <th className="border border-slate-400 p-3 text-left">Verified</th>
+                          <th className="border border-slate-400 p-3 text-left">LGA</th>
+                        </>}
+                        {section.type === 'CDR' && <>
+                          <th className="border border-slate-400 p-3 text-left">CM Name</th>
+                          <th className="border border-slate-400 p-3 text-left">Code</th>
+                          <th className="border border-slate-400 p-3 text-left">Misconduct</th>
+                          <th className="border border-slate-400 p-3 text-left">LGA</th>
+                        </>}
+                        {section.type === 'SAED' && <>
+                          <th className="border border-slate-400 p-3 text-left">Hub Name</th>
+                          <th className="border border-slate-400 p-3 text-left">Enrollment</th>
+                          <th className="border border-slate-400 p-3 text-left">LGA</th>
+                        </>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.data.length === 0 ? (
+                        <tr><td colSpan={5} className="p-4 text-center italic text-slate-400">No records found for this period.</td></tr>
+                      ) : (
+                        section.data.map((item: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                            <td className="border border-slate-400 p-3 text-center">{idx + 1}</td>
+                            {section.type === 'CWHS' && <>
+                              <td className="border border-slate-400 p-3 font-bold">{item.name}</td>
+                              <td className="border border-slate-400 p-3">{item.stateCode}</td>
+                              <td className="border border-slate-400 p-3 uppercase font-black text-[9px]">{item.category}</td>
+                              <td className="border border-slate-400 p-3 italic">{item.lga}</td>
+                            </>}
+                            {section.type === 'CIM' && <>
+                              <td className="border border-slate-400 p-3 font-bold">{item.month}</td>
+                              <td className="border border-slate-400 p-3">{item.clearedCount} CMs</td>
+                              <td className="border border-slate-400 p-3">{item.lga}</td>
+                            </>}
+                            {section.type === 'CDR' && <>
+                              <td className="border border-slate-400 p-3 font-bold">{item.name}</td>
+                              <td className="border border-slate-400 p-3">{item.stateCode}</td>
+                              <td className="border border-slate-400 p-3 text-[10px]">{item.misconduct}</td>
+                              <td className="border border-slate-400 p-3">{item.lga}</td>
+                            </>}
+                            {section.type === 'SAED' && <>
+                              <td className="border border-slate-400 p-3 font-bold">{item.centerName}</td>
+                              <td className="border border-slate-400 p-3">{item.cmCount} Registered</td>
+                              <td className="border border-slate-400 p-3">{item.lga}</td>
+                            </>}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse border border-slate-300">
                 <thead>
                   <tr className="bg-slate-50">
-                    <th className="border border-slate-300 p-2 text-left">S/N</th>
+                    <th className="border border-slate-300 p-3 text-left">S/N</th>
                     {printData.type === 'CWHS' && <>
-                      <th className="border border-slate-300 p-2 text-left">Name</th>
-                      <th className="border border-slate-300 p-2 text-left">State Code</th>
-                      <th className="border border-slate-300 p-2 text-left">Category</th>
-                      <th className="border border-slate-300 p-2 text-left">LGA</th>
+                      <th className="border border-slate-300 p-3 text-left">Name</th>
+                      <th className="border border-slate-300 p-3 text-left">State Code</th>
+                      <th className="border border-slate-300 p-3 text-left">Category</th>
+                      <th className="border border-slate-300 p-3 text-left">LGA</th>
                     </>}
                     {printData.type === 'CIM' && <>
-                      <th className="border border-slate-300 p-2 text-left">Month</th>
-                      <th className="border border-slate-300 p-2 text-left">LGA</th>
-                      <th className="border border-slate-300 p-2 text-left">Cleared</th>
-                      <th className="border border-slate-300 p-2 text-left">Uncleared</th>
+                      <th className="border border-slate-300 p-3 text-left">Month</th>
+                      <th className="border border-slate-300 p-3 text-left">LGA</th>
+                      <th className="border border-slate-300 p-3 text-left">Cleared</th>
+                      <th className="border border-slate-300 p-3 text-left">Uncleared</th>
                     </>}
                     {printData.type === 'SAED' && <>
-                      <th className="border border-slate-300 p-2 text-left">Hub Name</th>
-                      <th className="border border-slate-300 p-2 text-left">Location</th>
-                      <th className="border border-slate-300 p-2 text-left">Enrolled</th>
+                      <th className="border border-slate-300 p-3 text-left">Hub Name</th>
+                      <th className="border border-slate-300 p-3 text-left">Location</th>
+                      <th className="border border-slate-300 p-3 text-left">Enrolled</th>
                     </>}
                     {printData.type === 'CDR' && <>
-                      <th className="border border-slate-300 p-2 text-left">Name</th>
-                      <th className="border border-slate-300 p-2 text-left">State Code</th>
-                      <th className="border border-slate-300 p-2 text-left">Misconduct</th>
+                      <th className="border border-slate-300 p-3 text-left">Name</th>
+                      <th className="border border-slate-300 p-3 text-left">State Code</th>
+                      <th className="border border-slate-300 p-3 text-left">Misconduct</th>
                     </>}
                   </tr>
                 </thead>
                 <tbody>
                   {printData.items.map((item, idx) => (
                     <tr key={idx}>
-                      <td className="border border-slate-300 p-2">{idx + 1}</td>
+                      <td className="border border-slate-300 p-3">{idx + 1}</td>
                       {printData.type === 'CWHS' && <>
-                        <td className="border border-slate-300 p-2">{item.name}</td>
-                        <td className="border border-slate-300 p-2">{item.stateCode}</td>
-                        <td className="border border-slate-300 p-2">{item.category} {item.dateOfDeath ? `(${item.dateOfDeath})` : ''}</td>
-                        <td className="border border-slate-300 p-2">{item.lga}</td>
+                        <td className="border border-slate-300 p-3">{item.name}</td>
+                        <td className="border border-slate-300 p-3">{item.stateCode}</td>
+                        <td className="border border-slate-300 p-3">{item.category} {item.dateOfDeath ? `(${item.dateOfDeath})` : ''}</td>
+                        <td className="border border-slate-300 p-3">{item.lga}</td>
                       </>}
                       {printData.type === 'CIM' && <>
-                        <td className="border border-slate-300 p-2">{item.month}</td>
-                        <td className="border border-slate-300 p-2">{item.lga}</td>
-                        <td className="border border-slate-300 p-2">{item.clearedCount}</td>
-                        <td className="border border-slate-300 p-2">{item.unclearedList?.length || 0}</td>
+                        <td className="border border-slate-300 p-3">{item.month}</td>
+                        <td className="border border-slate-300 p-3">{item.lga}</td>
+                        <td className="border border-slate-300 p-3">{item.clearedCount}</td>
+                        <td className="border border-slate-300 p-3">{item.unclearedList?.length || 0}</td>
                       </>}
                       {printData.type === 'SAED' && <>
-                        <td className="border border-slate-300 p-2">{item.centerName}</td>
-                        <td className="border border-slate-300 p-2">{item.address}</td>
-                        <td className="border border-slate-300 p-2">{item.cmCount}</td>
+                        <td className="border border-slate-300 p-3">{item.centerName}</td>
+                        <td className="border border-slate-300 p-3">{item.address}</td>
+                        <td className="border border-slate-300 p-3">{item.cmCount}</td>
                       </>}
                       {printData.type === 'CDR' && <>
-                        <td className="border border-slate-300 p-2">{item.name}</td>
-                        <td className="border border-slate-300 p-2">{item.stateCode}</td>
-                        <td className="border border-slate-300 p-2">{item.misconduct}</td>
+                        <td className="border border-slate-300 p-3">{item.name}</td>
+                        <td className="border border-slate-300 p-3">{item.stateCode}</td>
+                        <td className="border border-slate-300 p-3">{item.misconduct}</td>
                       </>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          )}
 
-          <div className="flex flex-col items-end mt-20">
-            <div className="w-48 border-b border-slate-900 mb-2"></div>
-            <p className="font-bold uppercase text-xs">
+          <div className="flex flex-col items-end mt-24 break-inside-avoid">
+            <div className="w-64 border-b-2 border-slate-900 mb-2"></div>
+            <p className="font-black uppercase text-sm tracking-tight">
               {userRole === 'ZI' ? 'Zonal Inspector' : `(LGI ${lgaContext} for Zonal Inspector)`}
             </p>
-            <p className="text-[10px] text-slate-500 italic mt-2">For: State Coordinator</p>
+            <p className="text-xs text-slate-500 font-bold uppercase mt-2">National Youth Service Corps</p>
+            <p className="text-[10px] text-slate-400 italic">For: State Coordinator, Katsina</p>
           </div>
 
-          <div className="mt-20 flex justify-center gap-4 no-print">
-            <button onClick={() => setPrintData(null)} className="px-6 py-3 bg-slate-200 text-slate-900 rounded-xl font-bold uppercase text-xs">Close</button>
-            <button onClick={() => window.print()} className="px-6 py-3 bg-emerald-900 text-white rounded-xl font-bold uppercase text-xs">Print Document</button>
+          <div className="mt-20 flex justify-center gap-6 no-print">
+            <button onClick={() => setPrintData(null)} className="px-10 py-4 bg-slate-200 text-slate-900 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-300 transition-all">Close</button>
+            <button onClick={() => window.print()} className="px-10 py-4 bg-emerald-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-black transition-all shadow-xl flex items-center gap-3">
+              <FileTextIcon /> Print Document
+            </button>
           </div>
         </div>
       </div>
@@ -247,7 +344,7 @@ const App: React.FC = () => {
           <div className="flex justify-between items-start mb-10 pb-4 border-b-4 border-emerald-800">
             <div className="flex items-start gap-4">
               <div className="w-24 h-24 bg-white border-2 border-slate-200 rounded-full flex items-center justify-center p-1">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/NYSC_logo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
+                <img src="/nyscLogo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
               </div>
               <div className="text-left mt-2">
                 <h1 className="text-3xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
@@ -335,24 +432,47 @@ const App: React.FC = () => {
 
       <header className="bg-emerald-950 text-white p-6 shadow-2xl flex flex-col md:flex-row justify-between items-center no-print sticky top-0 z-50 border-b-4 border-emerald-800">
         <div className="flex items-center gap-6 mb-4 md:mb-0">
-          <div className="p-4 bg-emerald-800 rounded-3xl shadow-xl border border-emerald-500/50 scale-110"><DashboardIcon /></div>
+          <div className="p-4 bg-emerald-800 rounded-3xl shadow-xl border border-emerald-500/50 scale-110">
+            <DashboardIcon />
+          </div>
           <div>
             <h1 className="text-2xl font-black uppercase tracking-tight leading-none mb-1 font-serif-heading">
-              {userRole === 'ZI' ? 'NYSC ZONAL OFFICE, DAURA ZONE' : `${lgaContext?.toUpperCase()} STATION OFFICE`}
+              {userRole === 'ZI' ? 'NYSC Zonal Office, Daura' : `${lgaContext?.toUpperCase()} Station Office`}
             </h1>
             <p className="text-xs font-bold text-emerald-400/80 tracking-widest uppercase italic">Katsina State Secretariat Management System</p>
           </div>
         </div>
         <div className="flex items-center gap-4 w-full md:w-auto">
           {userRole === 'ZI' && (
-            <select 
-              className="w-full md:w-auto bg-emerald-900 border-emerald-700 border-2 rounded-2xl px-6 py-4 text-xs font-black uppercase text-emerald-300 outline-none hover:border-emerald-400 transition-all cursor-pointer shadow-lg"
-              value={ziStationFilter}
-              onChange={(e) => setZiStationFilter(e.target.value)}
-            >
-              <option value="all">Global Zonal View</option>
-              {LGAS.map(l => <option key={l} value={l}>{l.toUpperCase()} STATION</option>)}
-            </select>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center bg-emerald-800 border-2 border-emerald-500/50 rounded-2xl p-1 shadow-xl">
+                 <select 
+                   className="bg-transparent text-white font-black uppercase text-[10px] tracking-widest px-4 py-3 outline-none cursor-pointer"
+                   value={reportFrequency}
+                   onChange={(e) => setReportFrequency(e.target.value as any)}
+                 >
+                   <option value="Weekly">Weekly</option>
+                   <option value="Monthly">Monthly</option>
+                   <option value="Quarterly">Quarterly</option>
+                 </select>
+                 <button 
+                  onClick={() => handleGenerateGazette(reportFrequency)}
+                  className="flex items-center gap-2 px-4 py-3 bg-emerald-700 hover:bg-emerald-600 rounded-xl transition-all font-black uppercase text-[10px] tracking-widest group"
+                  title="Generate Official Report"
+                >
+                  <FileTextIcon />
+                  Generate Report
+                </button>
+              </div>
+              <select 
+                className="w-full md:w-auto bg-emerald-900 border-emerald-700 border-2 rounded-2xl px-6 py-4 text-xs font-black uppercase text-emerald-300 outline-none hover:border-emerald-400 transition-all cursor-pointer shadow-lg"
+                value={ziStationFilter}
+                onChange={(e) => setZiStationFilter(e.target.value)}
+              >
+                <option value="all">Global Zonal View</option>
+                {LGAS.map(l => <option key={l} value={l}>{l.toUpperCase()} STATION</option>)}
+              </select>
+            </div>
           )}
           <button 
             onClick={() => setIsExportModalOpen(true)}
@@ -628,7 +748,7 @@ const ExportTerminalModal = ({ onClose, data }: { onClose: () => void, data: any
   );
 };
 
-// --- Sub-Components ---
+// --- Utilities ---
 
 const SelectionBar = ({ selectedCount, onWhatsApp, onCSV, onPDF, onClear }: any) => {
   if (selectedCount === 0) return null;
