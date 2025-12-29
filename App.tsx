@@ -138,7 +138,7 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, userRole, lgaContext, ziStationFilter, searchQuery]);
 
-  const handleGenerateGazette = (frequency: 'Weekly' | 'Monthly' | 'Quarterly') => {
+  const handleGenerateReport = (frequency: 'Weekly' | 'Monthly' | 'Quarterly') => {
     setPrintData({
       title: `${frequency} Official Report`,
       items: [
@@ -161,8 +161,8 @@ const App: React.FC = () => {
                 <img src="/nyscLogo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
               </div>
               <div className="text-left mt-2">
-                <h1 className="text-3xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
-                <p className="text-xl font-bold text-red-600 uppercase tracking-widest leading-none font-serif-heading">Katsina State Secretariat</p>
+                <h1 className="text-xl md:text-2xl font-black text-emerald-800 tracking-tighter leading-none mb-1 font-serif-heading uppercase whitespace-nowrap">NATIONAL YOUTH SERVICE CORPS</h1>
+                <p className="text-lg md:text-xl font-bold text-red-600 uppercase tracking-widest leading-none font-serif-heading">Katsina State Secretariat</p>
                 <p className="text-sm font-black text-slate-800 uppercase mt-2 tracking-tighter">DAURA ZONAL OFFICE</p>
               </div>
             </div>
@@ -347,7 +347,7 @@ const App: React.FC = () => {
                 <img src="/nyscLogo.png" alt="NYSC Logo" className="w-full h-auto object-contain" />
               </div>
               <div className="text-left mt-2">
-                <h1 className="text-3xl font-black text-emerald-800 tracking-tight leading-none mb-1 font-serif-heading">NATIONAL YOUTH SERVICE CORPS</h1>
+                <h1 className="text-2xl font-black text-emerald-800 tracking-tighter leading-none mb-1 font-serif-heading uppercase">NATIONAL YOUTH SERVICE CORPS</h1>
                 <p className="text-base font-bold text-red-600 uppercase tracking-widest font-serif-heading">Katsina State Secretariat</p>
               </div>
             </div>
@@ -456,7 +456,7 @@ const App: React.FC = () => {
                    <option value="Quarterly">Quarterly</option>
                  </select>
                  <button 
-                  onClick={() => handleGenerateGazette(reportFrequency)}
+                  onClick={() => handleGenerateReport(reportFrequency)}
                   className="flex items-center gap-2 px-4 py-3 bg-emerald-700 hover:bg-emerald-600 rounded-xl transition-all font-black uppercase text-[10px] tracking-widest group"
                   title="Generate Official Report"
                 >
@@ -626,6 +626,7 @@ const downloadCSV = (data: any[], filename: string, headers: string[]) => {
 const ExportTerminalModal = ({ onClose, data }: { onClose: () => void, data: any }) => {
   const [selectedDivisions, setSelectedDivisions] = useState<Division[]>(['CWHS']);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [includeCIMDetails, setIncludeCIMDetails] = useState(false);
 
   const toggleDivision = (div: Division) => {
     setSelectedDivisions(prev => prev.includes(div) ? prev.filter(d => d !== div) : [...prev, div]);
@@ -643,8 +644,39 @@ const ExportTerminalModal = ({ onClose, data }: { onClose: () => void, data: any
           headers = ['name', 'stateCode', 'category', 'dateOfDeath', 'details', 'lga', 'dateAdded'];
           break;
         case 'CIM': 
-          source = data.cimEntries; 
-          headers = ['month', 'lga', 'clearedCount', 'maleCount', 'femaleCount', 'dateAdded'];
+          if (includeCIMDetails) {
+            // Expansion logic for uncleared CMs
+            const expanded: any[] = [];
+            data.cimEntries.forEach((audit: any) => {
+              if (audit.unclearedList && audit.unclearedList.length > 0) {
+                audit.unclearedList.forEach((cm: any) => {
+                  expanded.push({
+                    month: audit.month,
+                    lga: audit.lga,
+                    auditDate: audit.dateAdded,
+                    uncleared_name: cm.name,
+                    uncleared_code: cm.code,
+                    uncleared_reason: cm.reason
+                  });
+                });
+              } else {
+                expanded.push({
+                  month: audit.month,
+                  lga: audit.lga,
+                  auditDate: audit.dateAdded,
+                  uncleared_name: 'N/A',
+                  uncleared_code: 'N/A',
+                  uncleared_reason: 'None'
+                });
+              }
+            });
+            source = expanded;
+            headers = ['month', 'lga', 'auditDate', 'uncleared_name', 'uncleared_code', 'uncleared_reason'];
+            filename = `CIM_Detailed_Uncleared_${new Date().toISOString().split('T')[0]}`;
+          } else {
+            source = data.cimEntries; 
+            headers = ['month', 'lga', 'clearedCount', 'maleCount', 'femaleCount', 'dateAdded'];
+          }
           break;
         case 'CDR': 
           source = data.cdrEntries; 
@@ -657,7 +689,8 @@ const ExportTerminalModal = ({ onClose, data }: { onClose: () => void, data: any
       }
 
       const filtered = source.filter(item => {
-        const itemDate = item.dateAdded ? item.dateAdded.split('T')[0] : '';
+        const dateKey = div === 'CIM' && includeCIMDetails ? 'auditDate' : 'dateAdded';
+        const itemDate = item[dateKey] ? item[dateKey].split('T')[0] : '';
         const afterStart = !dateRange.start || itemDate >= dateRange.start;
         const beforeEnd = !dateRange.end || itemDate <= dateRange.end;
         return afterStart && beforeEnd;
@@ -701,6 +734,18 @@ const ExportTerminalModal = ({ onClose, data }: { onClose: () => void, data: any
                 </button>
               ))}
             </div>
+            {selectedDivisions.includes('CIM') && (
+              <div className="flex items-center gap-3 p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl animate-official">
+                <input 
+                  type="checkbox" 
+                  id="cim_details"
+                  checked={includeCIMDetails}
+                  onChange={(e) => setIncludeCIMDetails(e.target.checked)}
+                  className="w-6 h-6 accent-emerald-600 rounded-lg cursor-pointer"
+                />
+                <label htmlFor="cim_details" className="text-xs font-black uppercase text-slate-700 cursor-pointer">Include uncleared corps members with reasons in CIM export</label>
+              </div>
+            )}
           </section>
 
           <section className="space-y-6">
