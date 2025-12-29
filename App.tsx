@@ -103,7 +103,6 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, userRole, lgaContext, ziStationFilter]);
 
-  // Handle PDF/Print View for selected items
   if (printData) {
     return (
       <div className="min-h-screen bg-white p-10 font-official-document text-slate-900">
@@ -139,12 +138,13 @@ const App: React.FC = () => {
                       <th className="border border-slate-300 p-2 text-left">Name</th>
                       <th className="border border-slate-300 p-2 text-left">State Code</th>
                       <th className="border border-slate-300 p-2 text-left">Category</th>
+                      <th className="border border-slate-300 p-2 text-left">Details</th>
                       <th className="border border-slate-300 p-2 text-left">LGA</th>
                     </>}
                     {printData.type === 'CIM' && <>
                       <th className="border border-slate-300 p-2 text-left">Month</th>
                       <th className="border border-slate-300 p-2 text-left">LGA</th>
-                      <th className="border border-slate-300 p-2 text-left">Total</th>
+                      <th className="border border-slate-300 p-2 text-left">Strength</th>
                       <th className="border border-slate-300 p-2 text-left">Cleared</th>
                       <th className="border border-slate-300 p-2 text-left">Uncleared</th>
                     </>}
@@ -163,7 +163,11 @@ const App: React.FC = () => {
                       {printData.type === 'CWHS' && <>
                         <td className="border border-slate-300 p-2">{item.name}</td>
                         <td className="border border-slate-300 p-2">{item.stateCode}</td>
-                        <td className="border border-slate-300 p-2">{item.category}</td>
+                        <td className="border border-slate-300 p-2">
+                          {item.category}
+                          {item.category === ReportCategory.DECEASED && item.dateOfDeath && ` (${item.dateOfDeath})`}
+                        </td>
+                        <td className="border border-slate-300 p-2">{item.details}</td>
                         <td className="border border-slate-300 p-2">{item.lga}</td>
                       </>}
                       {printData.type === 'CIM' && <>
@@ -205,7 +209,6 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-200 p-4 md:p-12 flex flex-col items-center overflow-auto">
         <div className="max-w-4xl w-full bg-white shadow-2xl p-10 md:p-16 relative overflow-hidden font-official-document text-slate-900 print-shadow-none document-page animate-official border border-slate-300">
-          
           <div className="flex justify-between items-start mb-10 pb-4 border-b-4 border-emerald-800">
             <div className="flex items-start gap-4">
               <div className="w-24 h-24 bg-white border-2 border-slate-200 rounded-full flex items-center justify-center p-1">
@@ -260,7 +263,7 @@ const App: React.FC = () => {
         <form onSubmit={handleLogin} className="bg-white p-12 rounded-[3rem] shadow-2xl w-full max-w-xl space-y-10 animate-official border-8 border-emerald-900/10">
           <div className="text-center">
             <div className="w-24 h-24 bg-emerald-900 rounded-full mx-auto mb-8 flex items-center justify-center shadow-2xl ring-8 ring-emerald-50 text-white font-serif-heading text-3xl font-black italic">NYSC</div>
-            <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter mb-2 font-serif-heading">Zonal Portal</h1>
+            <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter mb-2 font-serif-heading">Secretariat Portal</h1>
             <p className="text-sm font-bold text-slate-400 uppercase tracking-[0.3em]">Administrative Access</p>
           </div>
           <div className="space-y-6">
@@ -270,8 +273,8 @@ const App: React.FC = () => {
                 const val = e.target.value;
                 setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
               }}>
-                <option value="">Select Command...</option>
-                <option value="ZI">Zonal Inspector (ZI)</option>
+                <option value="">Select Station...</option>
+                <option value="ZI">Zonal Office (ZI)</option>
                 {LGAS.map(l => <option key={l} value={l}>{l} Station (LGI)</option>)}
               </select>
             </div>
@@ -377,7 +380,7 @@ const App: React.FC = () => {
   );
 };
 
-// --- Utilities for Export ---
+// --- Utilities ---
 
 const downloadCSV = (data: any[], filename: string, headers: string[]) => {
   const csvContent = "data:text/csv;charset=utf-8," 
@@ -395,7 +398,7 @@ const downloadCSV = (data: any[], filename: string, headers: string[]) => {
   document.body.removeChild(link);
 };
 
-// --- Sub-Modules ---
+// --- Reusable Components ---
 
 const SelectionBar = ({ selectedCount, onWhatsApp, onCSV, onPDF, onClear }: any) => {
   if (selectedCount === 0) return null;
@@ -403,13 +406,13 @@ const SelectionBar = ({ selectedCount, onWhatsApp, onCSV, onPDF, onClear }: any)
     <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-5 rounded-[2.5rem] shadow-2xl z-[60] flex items-center gap-8 border border-white/10 animate-official">
       <div className="flex items-center gap-3 pr-8 border-r border-white/20">
         <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center text-xs font-black">{selectedCount}</div>
-        <span className="text-xs font-black uppercase tracking-widest">Records Selected</span>
+        <span className="text-xs font-black uppercase tracking-widest">Selected</span>
       </div>
       <div className="flex items-center gap-4">
-        <button onClick={onWhatsApp} className="p-3 bg-white/10 rounded-xl hover:bg-emerald-600 transition-all flex items-center gap-2 text-[10px] font-black uppercase"><WhatsAppIcon /> WhatsApp</button>
-        <button onClick={onCSV} className="p-3 bg-white/10 rounded-xl hover:bg-blue-600 transition-all flex items-center gap-2 text-[10px] font-black uppercase"><DownloadIcon /> CSV</button>
-        <button onClick={onPDF} className="p-3 bg-white/10 rounded-xl hover:bg-red-600 transition-all flex items-center gap-2 text-[10px] font-black uppercase"><FileTextIcon /> PDF</button>
-        <button onClick={onClear} className="ml-4 text-[10px] font-black uppercase text-slate-400 hover:text-white transition-all underline underline-offset-4">Deselect All</button>
+        <button onClick={onWhatsApp} title="WhatsApp Share" className="p-3 bg-white/10 rounded-xl hover:bg-emerald-600 transition-all"><WhatsAppIcon /></button>
+        <button onClick={onCSV} title="CSV Export" className="p-3 bg-white/10 rounded-xl hover:bg-blue-600 transition-all"><DownloadIcon /></button>
+        <button onClick={onPDF} title="PDF Preview" className="p-3 bg-white/10 rounded-xl hover:bg-red-600 transition-all"><FileTextIcon /></button>
+        <button onClick={onClear} className="ml-4 text-[10px] font-black uppercase text-slate-400 hover:text-white transition-all underline">Deselect</button>
       </div>
     </div>
   );
@@ -422,30 +425,28 @@ const Header = ({ title, sub }: { title: string, sub: string }) => (
   </div>
 );
 
+// --- Modules ---
+
 const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
-  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
+  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     await addData(db, "nysc_reports", { ...formData, lga: lga || 'Daura' });
-    setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '' });
-  };
-
-  const handleSelection = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
   };
 
   const selectedItems = entries.filter((e: any) => selectedIds.includes(e.id));
 
   const handleBulkWhatsApp = () => {
-    const text = `*NYSC CW&HS SUMMARY REPORT*\nGenerated: ${new Date().toLocaleDateString()}\n\n` + 
-      selectedItems.map((e: any) => `- ${e.name} (${e.stateCode}): ${e.category}`).join('\n');
+    const text = `*NYSC CW&HS REPORT*\n` + 
+      selectedItems.map((e: any) => `- ${e.name} (${e.stateCode}): ${e.category}${e.dateOfDeath ? ` on ${e.dateOfDeath}` : ''}`).join('\n');
     onShare(text);
   };
 
   const handleBulkCSV = () => {
-    downloadCSV(selectedItems, 'CWHS_Report', ['name', 'stateCode', 'category', 'lga', 'details']);
+    downloadCSV(selectedItems, 'CWHS_Report', ['name', 'stateCode', 'category', 'dateOfDeath', 'details', 'lga']);
   };
 
   const handleBulkPDF = () => {
@@ -455,65 +456,69 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
   return (
     <div className="animate-official space-y-12 pb-32">
       <div className="flex justify-between items-end no-print">
-        <Header title="CW&HS" sub="Welfare registry and health incident tracking" />
-        <button onClick={() => setPrintView({ title: 'CW&HS Full Zonal Report', items: entries, type: 'CWHS' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black border-b-8 border-black flex items-center gap-3 transition-all">
-          <FileTextIcon /> Full Zonal Gazette
+        <Header title="CW&HS" sub="Welfare and health registry" />
+        <button onClick={() => setPrintView({ title: 'CW&HS Full Zonal Report', items: entries, type: 'CWHS' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
+          <FileTextIcon /> Full Gazette
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         <div className="lg:col-span-4 no-print">
           <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl sticky top-32">
-            <h3 className="font-black uppercase text-xs mb-8 pb-4 border-b-2 border-slate-100 font-serif-heading">New Welfare Entry</h3>
+            <h3 className="font-black uppercase text-xs mb-8 pb-4 border-b-2 border-slate-100 font-serif-heading">Official Entry Form</h3>
             <form onSubmit={handleSubmit} className="space-y-6">
               <input required placeholder="FULL NAME" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
               <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-              <select className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
-                {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <textarea placeholder="CASE DETAILS..." className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200 h-32" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
-              <button className="w-full bg-emerald-900 text-white p-6 rounded-2xl font-black uppercase border-b-8 border-emerald-950">Archive to CW&HS</button>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Report Category</label>
+                <select className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
+                  {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              {formData.category === ReportCategory.DECEASED && (
+                <div className="space-y-2 animate-official">
+                  <label className="text-[10px] font-black uppercase text-red-600 ml-2">Date of Death</label>
+                  <input type="date" required className="w-full p-4 bg-red-50 rounded-2xl border-2 border-red-200 text-red-900" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
+                </div>
+              )}
+
+              <textarea placeholder="CASE NARRATIVE..." className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200 h-32" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+              <button className="w-full bg-emerald-900 text-white p-6 rounded-2xl font-black uppercase border-b-8 border-emerald-950 hover:bg-black transition-all">Submit to Registry</button>
             </form>
           </div>
         </div>
         <div className="lg:col-span-8 space-y-8">
-          <div className="flex justify-between items-center mb-4 px-4 no-print">
-            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select All Page</button>
-            <span className="text-[10px] font-black uppercase text-slate-300">Displaying {entries.length} Records</span>
+          <div className="flex justify-between items-center px-4 no-print">
+            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select Page</button>
+            <span className="text-[10px] font-black uppercase text-slate-300">{entries.length} Active Records</span>
           </div>
           {entries.map((e: any) => (
-            <div key={e.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-lg relative flex flex-col justify-between transition-all ${selectedIds.includes(e.id) ? 'border-emerald-500 ring-4 ring-emerald-500/10' : 'border-slate-200'}`}>
-              <div className="absolute top-8 right-8 no-print">
-                <input 
-                  type="checkbox" 
-                  checked={selectedIds.includes(e.id)} 
-                  onChange={() => handleSelection(e.id)} 
-                  className="w-6 h-6 accent-emerald-600 rounded-lg cursor-pointer"
-                />
+            <div key={e.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-lg relative transition-all ${selectedIds.includes(e.id) ? 'border-emerald-500 ring-4 ring-emerald-500/10' : 'border-slate-200'}`}>
+              <div className="absolute top-8 right-8 no-print flex items-center gap-4">
+                <button onClick={() => downloadCSV([e], e.name, ['name', 'stateCode', 'category', 'dateOfDeath', 'details', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className="w-6 h-6 accent-emerald-600 rounded-lg cursor-pointer" />
               </div>
-              <div>
-                <div className="flex justify-between items-start mb-4">
-                  <span className="bg-emerald-50 text-emerald-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-200">{e.category}</span>
-                  <span className="text-[10px] font-black text-slate-400 uppercase">{e.lga}</span>
+              <div className="flex justify-between items-start mb-4 pr-24">
+                <div className="flex gap-2">
+                  <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${e.category === ReportCategory.DECEASED ? 'bg-slate-900 text-white border-slate-700' : 'bg-emerald-50 text-emerald-900 border-emerald-200'}`}>{e.category}</span>
+                  {e.dateOfDeath && <span className="bg-red-50 text-red-700 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-red-200">Died: {e.dateOfDeath}</span>}
                 </div>
-                <h4 className="text-2xl font-black uppercase font-serif-heading">{e.name}</h4>
-                <p className="text-sm font-bold text-emerald-800 mb-4">{e.stateCode}</p>
-                <p className="text-slate-600 italic">"{e.details}"</p>
+                <span className="text-[10px] font-black text-slate-400 uppercase">{e.lga}</span>
               </div>
+              <h4 className="text-2xl font-black uppercase font-serif-heading">{e.name}</h4>
+              <p className="text-sm font-bold text-emerald-800 mb-4">{e.stateCode}</p>
+              <p className="text-slate-600 italic">"{e.details}"</p>
               <div className="mt-6 pt-4 border-t flex justify-end gap-3 no-print">
-                 <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
+                <button onClick={() => onShare(`CM: ${e.name} (${e.stateCode})\nStatus: ${e.category}${e.dateOfDeath ? ` on ${e.dateOfDeath}` : ''}\nDetails: ${e.details}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all"><WhatsAppIcon /></button>
+                <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
               </div>
             </div>
           ))}
         </div>
       </div>
-      <SelectionBar 
-        selectedCount={selectedIds.length} 
-        onWhatsApp={handleBulkWhatsApp} 
-        onCSV={handleBulkCSV} 
-        onPDF={handleBulkPDF}
-        onClear={() => setSelectedIds([])}
-      />
+      <SelectionBar selectedCount={selectedIds.length} onWhatsApp={handleBulkWhatsApp} onCSV={handleBulkCSV} onPDF={handleBulkPDF} onClear={() => setSelectedIds([])} />
     </div>
   );
 };
@@ -521,10 +526,6 @@ const CWHSModule = ({ entries, lga, db, onShare, setPrintView }: any) => {
 const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintView }: any) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0, uncleared: '' });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  const stats = useMemo(() => entries.reduce((acc: any, c: any) => {
-    acc.t += (c.maleCount + c.femaleCount); acc.cl += c.clearedCount; acc.unc += (c.unclearedList?.length || 0); return acc;
-  }, { t: 0, cl: 0, unc: 0 }), [entries]);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -537,72 +538,46 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
   };
 
   const selectedItems = entries.filter((e: any) => selectedIds.includes(e.id));
-
   const handleBulkWhatsApp = () => {
-    const text = `*NYSC CIM AUDIT SUMMARY*\n\n` + 
-      selectedItems.map((e: any) => `[${e.lga} - ${e.month}] Cleared: ${e.clearedCount}/${e.maleCount + e.femaleCount}`).join('\n');
+    const text = `*NYSC CIM AUDIT*\n` + selectedItems.map((e: any) => `[${e.lga} ${e.month}] Cleared: ${e.clearedCount}/${e.maleCount+e.femaleCount}`).join('\n');
     onShare(text);
   };
-
-  const handleBulkCSV = () => {
-    downloadCSV(selectedItems, 'CIM_Audit_Report', ['month', 'lga', 'maleCount', 'femaleCount', 'clearedCount']);
-  };
-
-  const handleBulkPDF = () => {
-    setPrintView({ title: 'Corps Inspection and Monitoring (CIM) Audit Report', items: selectedItems, type: 'CIM' });
-  };
+  const handleBulkCSV = () => downloadCSV(selectedItems, 'CIM_Audit', ['month', 'lga', 'maleCount', 'femaleCount', 'clearedCount']);
+  const handleBulkPDF = () => setPrintView({ title: 'CIM Audit Records', items: selectedItems, type: 'CIM' });
 
   return (
     <div className="animate-official space-y-12 pb-32">
-      <Header title="CIM" sub="Biometric verification and audit records" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 no-print">
-        <div className="bg-white p-10 rounded-[2rem] border-2 border-slate-200 text-center shadow-lg">
-          <h5 className="text-xs font-black uppercase text-slate-400 mb-2">CIM Total Strength</h5>
-          <div className="text-6xl font-black font-serif-heading text-slate-900">{stats.t}</div>
-        </div>
-        <div className="bg-emerald-50 p-10 rounded-[2rem] border-2 border-emerald-200 text-center shadow-lg">
-          <h5 className="text-xs font-black uppercase text-emerald-800 mb-2">Verified Cleared</h5>
-          <div className="text-6xl font-black font-serif-heading text-emerald-900">{stats.cl}</div>
-        </div>
-        <div className="bg-red-50 p-10 rounded-[2rem] border-2 border-red-200 text-center shadow-lg">
-          <h5 className="text-xs font-black uppercase text-red-800 mb-2">Disciplinary Defaults</h5>
-          <div className="text-6xl font-black font-serif-heading text-red-900">{stats.unc}</div>
-        </div>
-      </div>
+      <Header title="CIM" sub="Inspection and monitoring records" />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         <div className="lg:col-span-4 no-print">
           <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl">
-            <h3 className="font-black uppercase text-xs mb-8 border-b-2 border-slate-100 font-serif-heading">CIM Audit Form</h3>
+            <h3 className="font-black uppercase text-xs mb-8 border-b-2 border-slate-100 font-serif-heading">Audit Form</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
                <input type="month" required className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} />
                <div className="flex gap-4">
-                 <input type="number" placeholder="MALE" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, maleCount: Number(e.target.value)})} />
-                 <input type="number" placeholder="FEMALE" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, femaleCount: Number(e.target.value)})} />
+                 <input type="number" placeholder="M" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, maleCount: Number(e.target.value)})} />
+                 <input type="number" placeholder="F" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, femaleCount: Number(e.target.value)})} />
                </div>
-               <input type="number" placeholder="TOTAL VERIFIED" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, clearedCount: Number(e.target.value)})} />
-               <textarea placeholder="Line format: NAME, CODE, REASON" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200 h-40" value={formData.uncleared} onChange={e => setFormData({...formData, uncleared: e.target.value})} />
-               <button className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase">Archive CIM Audit</button>
+               <input type="number" placeholder="VERIFIED" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, clearedCount: Number(e.target.value)})} />
+               <textarea placeholder="Line: NAME, CODE, REASON" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200 h-40" value={formData.uncleared} onChange={e => setFormData({...formData, uncleared: e.target.value})} />
+               <button className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase">Archive Audit</button>
             </form>
           </div>
         </div>
         <div className="lg:col-span-8 space-y-10">
-          <div className="flex justify-between items-center mb-4 px-4 no-print">
-            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select All Page</button>
+          <div className="flex justify-between items-center px-4 no-print">
+            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-emerald-700">Select Page</button>
           </div>
           {entries.map((e: any) => (
             <div key={e.id} className={`bg-white rounded-[2.5rem] border-2 shadow-xl overflow-hidden transition-all relative ${selectedIds.includes(e.id) ? 'border-emerald-500 ring-4 ring-emerald-500/10' : 'border-slate-200'}`}>
-               <div className="absolute top-8 right-8 no-print">
-                <input 
-                  type="checkbox" 
-                  checked={selectedIds.includes(e.id)} 
-                  onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} 
-                  className="w-6 h-6 accent-emerald-400 rounded-lg cursor-pointer"
-                />
+               <div className="absolute top-8 right-8 no-print flex items-center gap-4">
+                 <button onClick={() => downloadCSV([e], `CIM_${e.lga}_${e.month}`, ['month', 'lga', 'maleCount', 'femaleCount', 'clearedCount'])} className="p-2 text-slate-400 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                 <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(i => i !== e.id) : [...prev, e.id])} className="w-6 h-6 accent-emerald-400 rounded-lg cursor-pointer" />
               </div>
                <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
                   <div>
                     <h4 className="text-2xl font-black uppercase font-serif-heading">{new Date(e.month).toLocaleString('default',{month:'long',year:'numeric'})}</h4>
-                    <p className="text-xs text-emerald-400 uppercase tracking-widest">STATION: {e.lga}</p>
+                    <p className="text-xs text-emerald-400 uppercase tracking-widest">{e.lga} STATION</p>
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] uppercase font-black opacity-50 block">Audit Strength</span>
@@ -610,35 +585,26 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
                   </div>
                </div>
                <div className="p-8 space-y-6">
-                 <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b pb-2 mb-4">Personnel in Default ({e.unclearedList?.length || 0})</h5>
                  {e.unclearedList?.map((cm: any, idx: number) => (
                    <div key={idx} className="flex justify-between items-center p-6 bg-slate-50 rounded-[1.5rem] border border-slate-200">
                       <div>
                         <span className="font-black block uppercase text-sm">{cm.name}</span>
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cm.code} • {cm.reason}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <button disabled={loading} onClick={() => onGenerateQuery(cm, e.lga)} className="px-6 py-3 bg-emerald-900 text-white rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-black transition-all">
-                          {loading ? '...' : <><FileTextIcon /> Query</>}
-                        </button>
-                      </div>
+                      <button disabled={loading} onClick={() => onGenerateQuery(cm, e.lga)} className="px-6 py-3 bg-emerald-900 text-white rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-black transition-all">
+                        {loading ? '...' : <><FileTextIcon /> Query</>}
+                      </button>
                    </div>
                  ))}
-                 <div className="flex justify-end pt-4 no-print">
-                    <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="text-[10px] font-black uppercase text-red-400 hover:text-red-700">Delete Audit Record</button>
+                 <div className="flex justify-end pt-4 no-print border-t border-slate-100">
+                    <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="text-[10px] font-black uppercase text-red-400 hover:text-red-700">Delete Record</button>
                  </div>
                </div>
             </div>
           ))}
         </div>
       </div>
-      <SelectionBar 
-        selectedCount={selectedIds.length} 
-        onWhatsApp={handleBulkWhatsApp} 
-        onCSV={handleBulkCSV} 
-        onPDF={handleBulkPDF}
-        onClear={() => setSelectedIds([])}
-      />
+      <SelectionBar selectedCount={selectedIds.length} onWhatsApp={handleBulkWhatsApp} onCSV={handleBulkCSV} onPDF={handleBulkPDF} onClear={() => setSelectedIds([])} />
     </div>
   );
 };
@@ -654,77 +620,53 @@ const SAEDModule = ({ entries, db, onShare, setPrintView }: any) => {
   };
 
   const selectedItems = entries.filter((e: any) => selectedIds.includes(e.id));
-
   const handleBulkWhatsApp = () => {
-    const text = `*NYSC SAED HUB REGISTRY*\n\n` + 
-      selectedItems.map((c: any) => `- ${c.centerName} (${c.lga}): ${c.cmCount} Trainees`).join('\n');
+    const text = `*NYSC SAED HUBS*\n` + selectedItems.map((c: any) => `- ${c.centerName}: ${c.cmCount} Trainees`).join('\n');
     onShare(text);
   };
-
-  const handleBulkCSV = () => {
-    downloadCSV(selectedItems, 'SAED_Hubs_Report', ['centerName', 'address', 'cmCount', 'fee', 'lga']);
-  };
-
-  const handleBulkPDF = () => {
-    setPrintView({ title: 'SAED Skill Hub Enrollment Report', items: selectedItems, type: 'SAED' });
-  };
+  const handleBulkCSV = () => downloadCSV(selectedItems, 'SAED_Report', ['centerName', 'address', 'cmCount', 'fee', 'lga']);
+  const handleBulkPDF = () => setPrintView({ title: 'SAED Enrollment Report', items: selectedItems, type: 'SAED' });
 
   return (
     <div className="animate-official space-y-12 pb-32">
-      <Header title="SAED" sub="Training center enrollment and skill hubs" />
+      <Header title="SAED" sub="Skill hub enrollment" />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         <div className="lg:col-span-4 no-print">
           <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl">
-            <h3 className="font-black uppercase text-xs mb-8 border-b-2 border-slate-100 font-serif-heading">New SAED Hub</h3>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <input required placeholder="HUB NAME" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
-              <input required placeholder="ADDRESS" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
-              <div className="flex gap-4">
-                <input type="number" placeholder="ENROLLED" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, cmCount: Number(e.target.value)})} />
-                <input type="number" placeholder="FEE (₦)" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, fee: Number(e.target.value)})} />
-              </div>
-              <button className="w-full bg-purple-900 text-white p-5 rounded-2xl font-black uppercase">Publish to SAED</button>
-            </form>
+             <form onSubmit={handleSubmit} className="space-y-6">
+                <input required placeholder="HUB NAME" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
+                <input required placeholder="ADDRESS" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
+                <div className="flex gap-4">
+                  <input type="number" placeholder="COUNT" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, cmCount: Number(e.target.value)})} />
+                  <input type="number" placeholder="FEE" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" onChange={e => setFormData({...formData, fee: Number(e.target.value)})} />
+                </div>
+                <button className="w-full bg-purple-900 text-white p-5 rounded-2xl font-black uppercase">Publish Hub</button>
+             </form>
           </div>
         </div>
-        <div className="lg:col-span-8">
-          <div className="flex justify-between items-center mb-4 px-4 no-print">
-            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-purple-700">Select All Page</button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {entries.map((c: any) => (
-              <div key={c.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-xl flex flex-col justify-between relative transition-all ${selectedIds.includes(c.id) ? 'border-purple-500 ring-4 ring-purple-500/10' : 'border-slate-200'}`}>
-                <div className="absolute top-8 right-8 no-print">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedIds.includes(c.id)} 
-                    onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(i => i !== c.id) : [...prev, c.id])} 
-                    className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer"
-                  />
+        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+          {entries.map((c: any) => (
+            <div key={c.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-xl flex flex-col justify-between relative transition-all ${selectedIds.includes(c.id) ? 'border-purple-500 ring-4 ring-purple-500/10' : 'border-slate-200'}`}>
+                <div className="absolute top-8 right-8 no-print flex items-center gap-4">
+                  <button onClick={() => downloadCSV([c], c.centerName, ['centerName', 'address', 'cmCount', 'fee', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                  <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(i => i !== c.id) : [...prev, c.id])} className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer" />
                 </div>
                 <div>
-                  <span className="bg-purple-50 text-purple-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-purple-200 font-serif-heading">₦{c.fee}</span>
-                  <h4 className="text-xl font-black uppercase mt-4 font-serif-heading">{c.centerName}</h4>
-                  <p className="text-xs font-bold text-slate-400 uppercase mt-1">{c.address}</p>
-                </div>
-                <div className="mt-8 pt-4 border-t flex justify-between items-center">
-                   <span className="text-[10px] font-black uppercase text-slate-400">Hub Enrollment: {c.cmCount}</span>
-                   <div className="flex gap-2 no-print">
-                     <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
-                   </div>
-                </div>
+                <span className="bg-purple-50 text-purple-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-purple-200">₦{c.fee}</span>
+                <h4 className="text-xl font-black uppercase mt-4 font-serif-heading">{c.centerName}</h4>
+                <p className="text-xs font-bold text-slate-400 uppercase mt-1">{c.address}</p>
               </div>
-            ))}
-          </div>
+              <div className="mt-8 pt-4 border-t flex justify-between items-center">
+                 <span className="text-[10px] font-black uppercase text-slate-400">Enrollment: {c.cmCount}</span>
+                 <div className="flex gap-2 no-print">
+                   <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
+                 </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-      <SelectionBar 
-        selectedCount={selectedIds.length} 
-        onWhatsApp={handleBulkWhatsApp} 
-        onCSV={handleBulkCSV} 
-        onPDF={handleBulkPDF}
-        onClear={() => setSelectedIds([])}
-      />
+      <SelectionBar selectedCount={selectedIds.length} onWhatsApp={handleBulkWhatsApp} onCSV={handleBulkCSV} onPDF={handleBulkPDF} onClear={() => setSelectedIds([])} />
     </div>
   );
 };
