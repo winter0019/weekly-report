@@ -6,7 +6,8 @@ import {
   UserRole,
   Division,
   CIMClearance,
-  SAEDCenter
+  SAEDCenter,
+  CDRCase
 } from './types';
 import { 
   PlusIcon, 
@@ -47,6 +48,7 @@ const App: React.FC = () => {
   const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
   const [cimEntries, setCimEntries] = useState<CIMClearance[]>([]);
   const [saedEntries, setSaedEntries] = useState<SAEDCenter[]>([]);
+  const [cdrEntries, setCdrEntries] = useState<CDRCase[]>([]);
   
   const [activeQuery, setActiveQuery] = useState<{ content: string, cm: any, lga: string, ppa: string } | null>(null);
   const [printData, setPrintData] = useState<{ title: string; items: any[]; type: Division } | null>(null);
@@ -65,7 +67,8 @@ const App: React.FC = () => {
         const unsub1 = subscribeToCollection(dbRef.current, "nysc_reports", setCwhsEntries);
         const unsub2 = subscribeToCollection(dbRef.current, "cim_clearance", setCimEntries);
         const unsub3 = subscribeToCollection(dbRef.current, "saed_centers", setSaedEntries);
-        return () => { unsub1(); unsub2(); unsub3(); };
+        const unsub4 = subscribeToCollection(dbRef.current, "cdr_cases", setCdrEntries);
+        return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
       } catch (err) {
         console.error("Setup error in App:", err);
       }
@@ -99,9 +102,10 @@ const App: React.FC = () => {
     return {
       cwhs: filterFn(cwhsEntries),
       cim: filterFn(cimEntries),
-      saed: filterFn(saedEntries)
+      saed: filterFn(saedEntries),
+      cdr: filterFn(cdrEntries)
     };
-  }, [cwhsEntries, cimEntries, saedEntries, userRole, lgaContext, ziStationFilter]);
+  }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, userRole, lgaContext, ziStationFilter]);
 
   if (printData) {
     return (
@@ -153,6 +157,13 @@ const App: React.FC = () => {
                       <th className="border border-slate-300 p-2 text-left">LGA</th>
                       <th className="border border-slate-300 p-2 text-left">Enrolled</th>
                     </>}
+                    {printData.type === 'CDR' && <>
+                      <th className="border border-slate-300 p-2 text-left">Name</th>
+                      <th className="border border-slate-300 p-2 text-left">State Code</th>
+                      <th className="border border-slate-300 p-2 text-left">PPA</th>
+                      <th className="border border-slate-300 p-2 text-left">Misconduct</th>
+                      <th className="border border-slate-300 p-2 text-left">LGA</th>
+                    </>}
                   </tr>
                 </thead>
                 <tbody>
@@ -181,6 +192,13 @@ const App: React.FC = () => {
                         <td className="border border-slate-300 p-2">{item.address}</td>
                         <td className="border border-slate-300 p-2">{item.lga}</td>
                         <td className="border border-slate-300 p-2">{item.cmCount}</td>
+                      </>}
+                      {printData.type === 'CDR' && <>
+                        <td className="border border-slate-300 p-2">{item.name}</td>
+                        <td className="border border-slate-300 p-2">{item.stateCode}</td>
+                        <td className="border border-slate-300 p-2">{item.ppa}</td>
+                        <td className="border border-slate-300 p-2">{item.misconduct}</td>
+                        <td className="border border-slate-300 p-2">{item.lga}</td>
                       </>}
                     </tr>
                   ))}
@@ -322,6 +340,7 @@ const App: React.FC = () => {
         {[
           { id: 'CWHS', label: 'CW&HS', sub: 'Welfare & Health' },
           { id: 'CIM', label: 'CIM', sub: 'Inspection & Monitoring' },
+          { id: 'CDR', label: 'CD&R', sub: 'Discipline & Rewards' },
           { id: 'SAED', label: 'SAED', sub: 'Skill Acquisition' }
         ].map(d => (
           <button 
@@ -361,6 +380,26 @@ const App: React.FC = () => {
               try {
                 const content = await generateDisciplinaryQuery(cm.name, cm.code, ppa, cm.reason);
                 setActiveQuery({ content, cm, lga, ppa });
+              } finally {
+                setIsGenerating(false);
+              }
+            }}
+            loading={isGenerating}
+            setPrintView={(data: any) => setPrintData(data)}
+            userRole={userRole}
+          />
+        )}
+        {division === 'CDR' && (
+          <CDRModule 
+            entries={filteredData.cdr} 
+            lga={lgaContext!} 
+            db={dbRef.current} 
+            onShare={(txt: string) => window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank')}
+            onGenerateQuery={async (cm: any, lga: string) => {
+              setIsGenerating(true);
+              try {
+                const content = await generateDisciplinaryQuery(cm.name, cm.stateCode, cm.ppa, cm.misconduct);
+                setActiveQuery({ content, cm, lga, ppa: cm.ppa });
               } finally {
                 setIsGenerating(false);
               }
@@ -627,6 +666,93 @@ const CIMModule = ({ entries, db, onShare, onGenerateQuery, loading, setPrintVie
   );
 };
 
+const CDRModule = ({ entries, lga, db, onShare, onGenerateQuery, loading, setPrintView, userRole }: any) => {
+  const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    await addData(db, "cdr_cases", { ...formData, lga: lga || 'Daura' });
+    setFormData({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
+  };
+
+  const selectedItems = entries.filter((e: any) => selectedIds.includes(e.id));
+  const handleBulkWhatsApp = () => {
+    const text = `*NYSC CD&R DISCIPLINARY REPORT*\n` + 
+      selectedItems.map((e: any) => `- ${e.name} (${e.stateCode}): ${e.misconduct} @ ${e.ppa}`).join('\n');
+    onShare(text);
+  };
+  const handleBulkCSV = () => downloadCSV(selectedItems, 'CDR_Cases', ['name', 'stateCode', 'ppa', 'misconduct', 'dateOfInfraction', 'lga']);
+  const handleBulkPDF = () => setPrintView({ title: 'Corps Discipline and Rewards (CD&R) Official Report', items: selectedItems, type: 'CDR' });
+
+  return (
+    <div className="animate-official space-y-12 pb-32">
+      <div className="flex justify-between items-end no-print">
+        <Header title="CD&R" sub="Discipline registry and misconduct tracking" />
+        {userRole === 'ZI' && (
+          <button onClick={() => setPrintView({ title: 'CD&R Full Zonal Gazette', items: entries, type: 'CDR' })} className="mb-12 bg-slate-900 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-2xl hover:bg-black flex items-center gap-3 transition-all border-b-8 border-black">
+            <FileTextIcon /> Zonal Discipline Gazette
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        <div className="lg:col-span-4 no-print">
+          <div className="bg-white p-10 rounded-[3rem] border-2 border-slate-200 shadow-2xl sticky top-32">
+            <h3 className="font-black uppercase text-xs mb-8 pb-4 border-b-2 border-slate-100 font-serif-heading">New CD&R Entry</h3>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <input required placeholder="FULL NAME" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
+              <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
+              <input required placeholder="PLACE OF PRIMARY ASSIGNMENT (PPA)" className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.ppa} onChange={e => setFormData({...formData, ppa: e.target.value})} />
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 ml-2">Date of Infraction</label>
+                <input type="date" required className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200" value={formData.dateOfInfraction} onChange={e => setFormData({...formData, dateOfInfraction: e.target.value})} />
+              </div>
+              <textarea required placeholder="DESCRIPTION OF MISCONDUCT..." className="w-full p-4 bg-slate-50 rounded-2xl border-2 border-slate-200 h-32" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: e.target.value})} />
+              <button className="w-full bg-red-900 text-white p-6 rounded-2xl font-black uppercase border-b-8 border-red-950 hover:bg-black transition-all">Log Misconduct & Flag</button>
+            </form>
+          </div>
+        </div>
+        <div className="lg:col-span-8 space-y-8">
+          <div className="flex justify-between items-center px-4 no-print">
+            <button onClick={() => setSelectedIds(entries.map((e: any) => e.id))} className="text-[10px] font-black uppercase text-slate-400 hover:text-red-700">Select All Page</button>
+            <span className="text-[10px] font-black uppercase text-slate-300">{entries.length} CD&R Records</span>
+          </div>
+          {entries.map((e: any) => (
+            <div key={e.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-lg relative transition-all ${selectedIds.includes(e.id) ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200'}`}>
+              <div className="absolute top-8 right-8 no-print flex items-center gap-4">
+                <button title="Individual CSV" onClick={() => downloadCSV([e], e.name, ['name', 'stateCode', 'ppa', 'misconduct', 'dateOfInfraction', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
+                <input type="checkbox" checked={selectedIds.includes(e.id)} onChange={() => setSelectedIds(prev => prev.includes(e.id) ? prev.filter(id => id !== e.id) : [...prev, e.id])} className="w-6 h-6 accent-red-600 rounded-lg cursor-pointer" />
+              </div>
+              <div className="flex justify-between items-start mb-4 pr-24">
+                <div className="flex gap-2">
+                  <span className="bg-red-50 text-red-900 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-red-200">Misconduct: {e.dateOfInfraction}</span>
+                  <span className="bg-slate-50 text-slate-700 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-slate-200">PPA: {e.ppa}</span>
+                </div>
+                <span className="text-[10px] font-black text-slate-400 uppercase">{e.lga}</span>
+              </div>
+              <h4 className="text-2xl font-black uppercase font-serif-heading">{e.name}</h4>
+              <p className="text-sm font-bold text-red-800 mb-4">{e.stateCode}</p>
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 italic text-slate-600 mb-6">
+                "{e.misconduct}"
+              </div>
+              <div className="mt-6 pt-4 border-t flex justify-end gap-3 no-print">
+                <button disabled={loading} onClick={() => onGenerateQuery(e, e.lga)} className="px-6 py-3 bg-red-900 text-white rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-black transition-all">
+                  {loading ? '...' : <><FileTextIcon /> Generate Query</>}
+                </button>
+                <button title="Individual WhatsApp" onClick={() => onShare(`CD&R Disciplinary Case\nCM: ${e.name} (${e.stateCode})\nPPA: ${e.ppa}\nInfraction: ${e.misconduct}`)} className="p-3 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all"><WhatsAppIcon /></button>
+                <button title="Individual PDF" onClick={() => setPrintView({ title: `CD&R Record: ${e.name}`, items: [e], type: 'CDR' })} className="p-3 bg-slate-50 text-slate-700 rounded-xl hover:bg-slate-200 transition-all"><FileTextIcon /></button>
+                <button onClick={() => deleteData(db, "cdr_cases", e.id)} className="p-3 bg-red-50 text-red-700 rounded-xl hover:bg-red-100 transition-all"><TrashIcon /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <SelectionBar selectedCount={selectedIds.length} onWhatsApp={handleBulkWhatsApp} onCSV={handleBulkCSV} onPDF={handleBulkPDF} onClear={() => setSelectedIds([])} />
+    </div>
+  );
+};
+
 const SAEDModule = ({ entries, db, onShare, setPrintView, userRole }: any) => {
   const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -675,7 +801,6 @@ const SAEDModule = ({ entries, db, onShare, setPrintView, userRole }: any) => {
             <div key={c.id} className={`bg-white p-8 rounded-[2rem] border-2 shadow-xl flex flex-col justify-between relative transition-all ${selectedIds.includes(c.id) ? 'border-purple-500 ring-4 ring-purple-500/10' : 'border-slate-200'}`}>
                 <div className="absolute top-8 right-8 no-print flex items-center gap-4">
                   <button title="Individual CSV" onClick={() => downloadCSV([c], c.centerName, ['centerName', 'address', 'cmCount', 'fee', 'lga'])} className="p-2 text-slate-300 hover:text-blue-600 transition-all"><DownloadIcon /></button>
-                  {/* Fix: Replaced undefined 'i' and 'e' with the correct current item 'c' in the map scope */}
                   <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => setSelectedIds(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} className="w-6 h-6 accent-purple-600 rounded-lg cursor-pointer" />
                 </div>
                 <div>

@@ -52,4 +52,15 @@ export interface SAEDCenter {
   dateAdded: string;
 }
 
-export type Division = 'CWHS' | 'CIM' | 'SAED';
+export interface CDRCase {
+  id: string;
+  name: string;
+  stateCode: string;
+  lga: DauraLga;
+  ppa: string;
+  misconduct: string;
+  dateOfInfraction: string;
+  dateAdded: string;
+}
+
+export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR';
