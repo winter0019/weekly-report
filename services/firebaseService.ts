@@ -1,4 +1,4 @@
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
+import { initializeApp, getApps, FirebaseApp, getApp } from "firebase/app";
 import { 
   getFirestore, 
   collection, 
@@ -15,22 +15,28 @@ import {
 
 let dbInstance: Firestore | null = null;
 
-export const initFirebase = (config: any): Firestore => {
-  if (dbInstance) return dbInstance;
-  
-  try {
-    const apps = getApps();
-    const app: FirebaseApp = apps.length === 0 ? initializeApp(config) : apps[0];
-    
-    if (!app) {
-      throw new Error("Firebase app could not be initialized.");
-    }
+const sanitizeData = (data: any): any => {
+  return JSON.parse(JSON.stringify(data));
+};
 
-    // Explicitly pass the app instance to getFirestore to ensure correct service binding
-    dbInstance = getFirestore(app);
+export const initFirebase = (config: any): Firestore => {
+  try {
+    let app: FirebaseApp;
+    const apps = getApps();
+    
+    if (apps.length === 0) {
+      app = initializeApp(config);
+    } else {
+      app = getApp();
+    }
+    
+    if (!dbInstance) {
+      dbInstance = getFirestore(app);
+    }
+    
     return dbInstance;
   } catch (error) {
-    console.error("Firebase Initialization Failed:", error);
+    console.error("Critical Firebase Initialization Error:", error);
     throw error;
   }
 };
@@ -39,7 +45,7 @@ const normalizeValue = (val: any): any => {
   if (val === null || val === undefined) return val;
   if (typeof val.toDate === 'function') return val.toDate().toISOString();
   if (Array.isArray(val)) return val.map(normalizeValue);
-  if (typeof val === 'object') {
+  if (typeof val === 'object' && !(val instanceof Date)) {
     const res: any = {};
     for (const k in val) {
       if (Object.prototype.hasOwnProperty.call(val, k)) {
@@ -56,10 +62,7 @@ export const subscribeToCollection = (
   collectionName: string,
   onUpdate: (data: any[]) => void
 ) => {
-  if (!database) {
-    console.warn("Database not provided for subscription:", collectionName);
-    return () => {};
-  }
+  if (!database) return () => {};
   
   try {
     const q = query(collection(database, collectionName), orderBy("dateAdded", "desc"));
@@ -70,30 +73,32 @@ export const subscribeToCollection = (
       }));
       onUpdate(data);
     }, (error) => {
-      console.error(`Snapshot error for ${collectionName}:`, error);
+      console.error(`Subscription error (${collectionName}):`, error);
     });
   } catch (err) {
-    console.error(`Failed to subscribe to ${collectionName}:`, err);
+    console.error(`Failed to setup listener for ${collectionName}:`, err);
     return () => {};
   }
 };
 
 export const addData = async (database: Firestore | null, collectionName: string, data: any) => {
-  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
+  if (!database) throw new Error("Database service is offline.");
+  const cleanData = sanitizeData(data);
   return await addDoc(collection(database, collectionName), {
-    ...data,
+    ...cleanData,
     dateAdded: new Date().toISOString(),
     _serverTimestamp: serverTimestamp()
   });
 };
 
 export const updateData = async (database: Firestore | null, collectionName: string, id: string, data: any) => {
-  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
+  if (!database) throw new Error("Database service is offline.");
   const ref = doc(database, collectionName, id);
-  return await updateDoc(ref, { ...data, _lastModified: serverTimestamp() });
+  const cleanData = sanitizeData(data);
+  return await updateDoc(ref, { ...cleanData, _lastModified: serverTimestamp() });
 };
 
 export const deleteData = async (database: Firestore | null, collectionName: string, id: string) => {
-  if (!database) throw new Error("Database not initialized. Firestore service is unavailable.");
+  if (!database) throw new Error("Database service is offline.");
   return await deleteDoc(doc(database, collectionName, id));
 };

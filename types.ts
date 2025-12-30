@@ -52,6 +52,8 @@ export interface SAEDCenter {
   dateAdded: string;
 }
 
+export type CDRStatus = 'Pending' | 'Responded' | 'Minuted_to_CIM' | 'Forwarded_to_CDR';
+
 export interface CDRCase {
   id: string;
   name: string;
@@ -61,6 +63,10 @@ export interface CDRCase {
   misconduct: string;
   dateOfInfraction: string;
   dateAdded: string;
+  status?: CDRStatus;
+  responseContent?: string;
+  lgiMinute?: string;
+  ziMinute?: string;
 }
 
 export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR';
