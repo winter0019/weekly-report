@@ -45,7 +45,6 @@ const App: React.FC = () => {
   const [ziStationFilter, setZiStationFilter] = useState<string>('all');
   const [reportingPeriod, setReportingPeriod] = useState<string>('WEEKLY');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [googleFormUrl, setGoogleFormUrl] = useState(() => localStorage.getItem('daura_form_url') || 'https://forms.gle/official-nysc-form');
   
   const [division, setDivision] = useState<Division>('CWHS');
   const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
@@ -116,7 +115,7 @@ const App: React.FC = () => {
       else if (userRole === 'ZI' && ziStationFilter !== 'all') filtered = filtered.filter(i => i.lga === ziStationFilter);
       return filtered.filter(item => {
         if (!q) return true;
-        return [item.name, item.stateCode, item.lga, item.category, item.centerName].some(s => String(s || '').toLowerCase().includes(q));
+        return [item.name, item.stateCode, item.lga, (item as any).category, (item as any).centerName].some(s => String(s || '').toLowerCase().includes(q));
       });
     };
     return {
@@ -209,16 +208,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-          {userRole === 'LGI' && (
-            <a 
-              href={googleFormUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/20 rounded-xl transition-all font-black uppercase text-[10px] tracking-widest shadow-xl"
-            >
-              <FileTextIcon /> OFFICIAL GOOGLE FORM
-            </a>
-          )}
           {userRole === 'ZI' ? (
             <div className="flex gap-4">
               <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-4 overflow-hidden">
@@ -325,27 +314,6 @@ const App: React.FC = () => {
                  </button>
                ))}
              </div>
-             
-             {userRole === 'ZI' && (
-               <div className="mt-12 pt-12 border-t border-slate-100 space-y-4">
-                 <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">System Configurations</h3>
-                 <div className="space-y-2">
-                   <label className="text-[8px] font-black uppercase text-emerald-800 ml-1">Official Google Form URL</label>
-                   <div className="flex gap-2">
-                     <input 
-                      type="text" 
-                      className="flex-1 p-4 bg-slate-50 rounded-xl text-xs font-bold border border-slate-100"
-                      value={googleFormUrl}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setGoogleFormUrl(val);
-                        localStorage.setItem('daura_form_url', val);
-                      }}
-                     />
-                   </div>
-                 </div>
-               </div>
-             )}
           </div>
         </div>
       )}
@@ -593,6 +561,10 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
     await updateData(db, "cdr_cases", id, { status });
   };
 
+  const handleMinuteUpdate = async (id: string, minute: string) => {
+    await updateData(db, "cdr_cases", id, { lgiMinute: minute });
+  };
+
   return (
     <>
       <div className="w-full lg:w-[350px] no-print shrink-0">
@@ -661,29 +633,42 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                </div>
              )}
 
+             {cm.status === 'Responded' && (
+               <div className="p-10 bg-blue-50/30 rounded-[2.5rem] border-2 border-blue-100/50 mb-10 animate-official">
+                  <p className="text-[9px] font-black text-blue-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                     <FileTextIcon /> LGI ADMINISTRATIVE MINUTE / RECOMMENDATION
+                  </p>
+                  <textarea 
+                    className="w-full p-6 bg-white rounded-2xl text-xs font-medium border border-blue-100 outline-none focus:ring-4 focus:ring-blue-50 transition-all h-32"
+                    placeholder="Enter your assessment and recommendation for the Zonal Office..."
+                    defaultValue={cm.lgiMinute || ''}
+                    onBlur={(e) => handleMinuteUpdate(cm.id, e.target.value)}
+                  />
+                  <p className="text-[8px] font-bold text-blue-400 mt-2 italic">* Auto-saves on blur</p>
+               </div>
+             )}
+
              <div className="flex justify-between items-center border-t border-slate-50 pt-8 no-print">
                 <div className="flex gap-2">
                    {userRole === 'ZI' && (
-                     <>
-                        <button 
-                          onClick={() => handleGenerateQuery(cm)} 
-                          disabled={isGenerating}
-                          className="px-6 py-3 bg-[#004d40] text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all flex items-center gap-2 disabled:opacity-50"
-                        >
-                           {isGenerating ? 'AI PROCESSING...' : 'GENERATE AI QUERY'}
-                        </button>
-                        <select 
-                          onChange={(e) => handleStatusUpdate(cm.id, e.target.value as CDRStatus)}
-                          className="px-4 py-3 bg-slate-100 rounded-xl text-[10px] font-black uppercase outline-none"
-                          value={cm.status}
-                        >
-                           <option value="Pending">Pending</option>
-                           <option value="Responded">Responded</option>
-                           <option value="Minuted_to_CIM">Minute to CIM</option>
-                           <option value="Forwarded_to_CDR">Forward to NDHQ</option>
-                        </select>
-                     </>
+                     <button 
+                       onClick={() => handleGenerateQuery(cm)} 
+                       disabled={isGenerating}
+                       className="px-6 py-3 bg-[#004d40] text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all flex items-center gap-2 disabled:opacity-50"
+                     >
+                        {isGenerating ? 'AI PROCESSING...' : 'GENERATE AI QUERY'}
+                     </button>
                    )}
+                   <select 
+                      onChange={(e) => handleStatusUpdate(cm.id, e.target.value as CDRStatus)}
+                      className="px-4 py-3 bg-slate-100 rounded-xl text-[10px] font-black uppercase outline-none"
+                      value={cm.status}
+                    >
+                       <option value="Pending">Pending</option>
+                       <option value="Responded">Responded</option>
+                       <option value="Minuted_to_CIM">Minute to CIM</option>
+                       <option value="Forwarded_to_CDR">Forward to NDHQ</option>
+                    </select>
                 </div>
                 <div className="flex gap-3">
                    <button className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center hover:bg-emerald-100" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDR CASE: ${cm.name} (${cm.stateCode}). Misconduct: ${cm.misconduct}. Status: ${cm.status}`)}`)}><WhatsAppIcon /></button>
