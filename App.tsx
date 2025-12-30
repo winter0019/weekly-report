@@ -97,6 +97,18 @@ const App: React.FC = () => {
 
   const dbRef = useRef<any>(null);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -114,10 +126,15 @@ const App: React.FC = () => {
             unsubs.push(subscribeToCollection(db, "saed_centers", (data) => active && setSAEDEntries(data)));
             unsubs.push(subscribeToCollection(db, "cdr_cases", (data) => active && setCdrEntries(data)));
             
-            setTimeout(() => { if (active) setIsDbLoaded(true); }, 800);
+            // Force load finish after a small delay regardless of initial connection status
+            // so cached data can be used in offline mode immediately.
+            setTimeout(() => { 
+              if (active) setIsDbLoaded(true); 
+            }, 500);
           }
         } catch (err) {
           console.error("Sync error:", err);
+          if (active) setIsDbLoaded(true); // Ensure UI shows up even on sync error
         }
       };
       
@@ -223,9 +240,14 @@ const App: React.FC = () => {
             <DashboardIcon />
           </div>
           <div className="flex flex-col">
-            <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tighter font-serif-heading leading-none">
-              NYSC ZONAL OFFICE, DAURA
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tighter font-serif-heading leading-none">
+                NYSC ZONAL OFFICE, DAURA
+              </h1>
+              {!isOnline && (
+                <span className="bg-orange-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black animate-pulse">OFFLINE</span>
+              )}
+            </div>
             <p className="text-[7px] sm:text-[8px] font-black text-emerald-400 tracking-[0.2em] uppercase mt-1 opacity-70 italic">
               KATSINA STATE SECRETARIAT MANAGEMENT SYSTEM
             </p>
@@ -269,6 +291,18 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-[1500px] mx-auto w-full px-4 sm:px-8 mt-6 sm:mt-12 flex flex-col gap-6 sm:gap-8">
+        {!isOnline && (
+          <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded-xl flex items-center gap-4 animate-official">
+            <div className="p-2 bg-orange-100 rounded-lg text-orange-600">
+               <DashboardIcon />
+            </div>
+            <div>
+               <p className="text-[10px] font-black uppercase text-orange-950">Offline Mode Active</p>
+               <p className="text-[8px] font-bold text-orange-700 uppercase">You can still add and view records. Changes will sync when reconnected.</p>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white p-6 sm:p-12 rounded-3xl sm:rounded-[2.5rem] shadow-sm border border-slate-200/50 relative overflow-hidden">
           <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div>
@@ -305,7 +339,7 @@ const App: React.FC = () => {
            {!isDbLoaded ? (
              <div className="w-full flex flex-col items-center justify-center py-20 sm:py-40 gap-4 text-slate-300">
                <div className="w-10 h-10 sm:w-12 h-12 border-4 border-slate-100 border-t-[#004d40] rounded-full animate-spin"></div>
-               <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Loading Secretariat Data...</p>
+               <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Initialising Secure Link...</p>
              </div>
            ) : (
              <>

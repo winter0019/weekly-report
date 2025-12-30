@@ -1,6 +1,7 @@
 import { initializeApp, getApps, FirebaseApp, getApp } from "firebase/app";
 import { 
-  getFirestore, 
+  initializeFirestore, 
+  enableIndexedDbPersistence,
   collection, 
   onSnapshot, 
   query, 
@@ -31,7 +32,22 @@ export const initFirebase = (config: any): Firestore => {
     }
     
     if (!dbInstance) {
-      dbInstance = getFirestore(app);
+      // Use initializeFirestore with experimentalForceLongPolling to bypass WebSocket blocking issues
+      // which is the common cause for the 10s timeout error.
+      dbInstance = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+      });
+
+      // Enable offline persistence for better resilience
+      enableIndexedDbPersistence(dbInstance).catch((err) => {
+        if (err.code === 'failed-precondition') {
+          // Multiple tabs open, persistence can only be enabled in one tab at a time.
+          console.warn("Firestore Persistence: Failed precondition (multiple tabs).");
+        } else if (err.code === 'unimplemented') {
+          // The current browser doesn't support all of the features needed to enable persistence
+          console.warn("Firestore Persistence: Unimplemented in this browser.");
+        }
+      });
     }
     
     return dbInstance;
@@ -73,6 +89,7 @@ export const subscribeToCollection = (
       }));
       onUpdate(data);
     }, (error) => {
+      // Log but don't crash, Firestore will automatically retry
       console.error(`Subscription error (${collectionName}):`, error);
     });
   } catch (err) {
