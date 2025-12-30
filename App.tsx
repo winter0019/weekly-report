@@ -38,6 +38,45 @@ const SECURITY_PINS: Record<string, string> = {
   'Mai’Adua': '5555', 'Mashi': '6666', 'Dutsi': '7777', 'Mani': '8888', 'Bindawa': '9999'
 };
 
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
+
+const downloadCSV = (data: any[], filename: string, registry: string) => {
+  if (data.length === 0) return alert("No data to export.");
+  
+  let headersArr: string[] = [];
+  if (registry === 'CWHS') headersArr = ['name', 'stateCode', 'lga', 'category', 'details', 'dateOfDeath', 'dateAdded'];
+  else if (registry === 'CIM') headersArr = ['month', 'lga', 'maleCount', 'femaleCount', 'totalCMs', 'clearedCount', 'dateAdded'];
+  else if (registry === 'CDR') headersArr = ['name', 'stateCode', 'lga', 'ppa', 'misconduct', 'dateOfInfraction', 'status', 'lgiMinute', 'ziMinute', 'dateAdded'];
+  else if (registry === 'SAED') headersArr = ['centerName', 'address', 'lga', 'cmCount', 'fee', 'dateAdded'];
+  else headersArr = Object.keys(data[0]).filter(k => k !== 'id');
+
+  const headers = headersArr.join(",");
+  const rows = data.map(item => {
+    return headersArr.map(h => {
+      let v = item[h];
+      if (h === 'unclearedList') v = Array.isArray(v) ? v.length : v;
+      const str = String(v || '').replace(/"/g, '""');
+      return `"${str}"`;
+    }).join(",");
+  });
+  
+  const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
   const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
@@ -115,7 +154,14 @@ const App: React.FC = () => {
       else if (userRole === 'ZI' && ziStationFilter !== 'all') filtered = filtered.filter(i => i.lga === ziStationFilter);
       return filtered.filter(item => {
         if (!q) return true;
-        return [item.name, item.stateCode, item.lga, (item as any).category, (item as any).centerName].some(s => String(s || '').toLowerCase().includes(q));
+        return [
+          item.name, 
+          item.stateCode, 
+          item.lga, 
+          (item as any).category, 
+          (item as any).centerName,
+          (item as any).ppa
+        ].some(s => String(s || '').toLowerCase().includes(q));
       });
     };
     return {
@@ -125,27 +171,6 @@ const App: React.FC = () => {
       cdr: filterFn(cdrEntries)
     };
   }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, userRole, lgaContext, ziStationFilter, searchQuery]);
-
-  const downloadCSV = (data: any[], filename: string) => {
-    if (data.length === 0) return alert("No data to export.");
-    const headers = Object.keys(data[0]).filter(k => k !== 'id').join(",");
-    const rows = data.map(item => {
-      return Object.entries(item)
-        .filter(([k]) => k !== 'id')
-        .map(([, v]) => {
-          const str = String(v).replace(/"/g, '""');
-          return `"${str}"`;
-        }).join(",");
-    });
-    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   if (!isAuthenticated) {
     return (
@@ -285,7 +310,7 @@ const App: React.FC = () => {
            ) : (
              <>
                {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} lga={lgaContext!} db={dbRef.current} />}
-               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} />}
+               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} cdrCases={cdrEntries} />}
                {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
                {division === 'SAED' && <SAEDModule entries={filteredData.saed} lga={lgaContext!} db={dbRef.current} />}
              </>
@@ -306,7 +331,7 @@ const App: React.FC = () => {
                ].map(m => (
                  <button 
                   key={m.id} 
-                  onClick={() => downloadCSV(m.data, m.id)}
+                  onClick={() => downloadCSV(m.data, m.id, m.id)}
                   className="w-full p-6 bg-slate-50 hover:bg-emerald-50 rounded-2xl flex justify-between items-center transition-all border border-transparent hover:border-emerald-100 group"
                  >
                     <span className="font-black uppercase tracking-widest text-sm">{m.label}</span>
@@ -362,7 +387,7 @@ const CWHSModule = ({ entries, lga, db }: any) => {
         {entries.map((e: any) => (
           <div key={e.id} className="bg-white p-12 rounded-[3.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
             <div className="absolute top-12 right-12 flex gap-6 opacity-40 group-hover:opacity-100 transition-opacity">
-               <button className="hover:text-emerald-700" onClick={() => alert("Ready to share individual record as JSON/PDF")}><DownloadIcon /></button>
+               <button className="hover:text-emerald-700" onClick={() => downloadCSV([e], e.name, 'CWHS')}><DownloadIcon /></button>
                <input type="checkbox" className="w-6 h-6 rounded-lg accent-[#004d40]" />
             </div>
             <div className="flex justify-between items-start mb-6">
@@ -383,7 +408,15 @@ const CWHSModule = ({ entries, lga, db }: any) => {
             </div>
             <div className="p-4 border-l-4 border-slate-100 italic text-slate-400 font-serif-heading text-xl mb-12">"{e.details || 'No narrative provided.'}"</div>
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-50 no-print">
-               <button className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center hover:bg-emerald-100 hover:scale-110 transition-all" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA REPORT: ${e.name} (${e.stateCode}) - ${e.category}. Details: ${e.details}`)}`)}><WhatsAppIcon /></button>
+               <button 
+                className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center hover:bg-emerald-100 hover:scale-110 transition-all" 
+                onClick={() => {
+                  const deathText = e.category === ReportCategory.DECEASED ? ` (Date of Death: ${e.dateOfDeath})` : '';
+                  window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA REPORT: ${e.name} (${e.stateCode}) - ${e.category}${deathText}. Details: ${e.details}`)}`);
+                }}
+               >
+                 <WhatsAppIcon />
+               </button>
                <button className="w-12 h-12 bg-slate-50 text-slate-700 rounded-2xl flex items-center justify-center hover:bg-slate-200 hover:scale-110 transition-all"><FileTextIcon /></button>
                <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center hover:bg-red-100 hover:scale-110 transition-all"><TrashIcon /></button>
             </div>
@@ -396,7 +429,7 @@ const CWHSModule = ({ entries, lga, db }: any) => {
 };
 
 /* --- CIM Module --- */
-const CIMModule = ({ entries, db, lga }: any) => {
+const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
   const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string}[]>([]);
@@ -417,6 +450,10 @@ const CIMModule = ({ entries, db, lga }: any) => {
       return [...acc, ...list];
     }, []);
   }, [entries]);
+
+  const forwardedCases = useMemo(() => {
+    return (cdrCases || []).filter((c: CDRCase) => c.status === 'Minuted_to_CIM');
+  }, [cdrCases]);
 
   return (
     <>
@@ -456,6 +493,37 @@ const CIMModule = ({ entries, db, lga }: any) => {
              </button>
            </div>
         </div>
+
+        {forwardedCases.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-black uppercase text-emerald-800 tracking-widest ml-4">Cases Forwarded from Zonal Office</h3>
+            {forwardedCases.map((c: CDRCase) => (
+              <div key={c.id} className="bg-emerald-50 p-10 rounded-[3.5rem] border border-emerald-100 relative group animate-official">
+                <div className="flex justify-between items-start mb-4">
+                   <div>
+                     <h4 className="text-xl font-black uppercase text-slate-800">{c.name}</h4>
+                     <p className="text-[10px] font-bold text-emerald-800">{c.stateCode} | {c.lga} Command</p>
+                   </div>
+                   <span className="px-3 py-1 bg-white border border-emerald-100 text-[8px] font-black uppercase rounded-full">Forwarded to CIM</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-white/50 rounded-2xl border border-emerald-50">
+                    <p className="text-[7px] font-black uppercase text-slate-400 mb-1">LGI Minute</p>
+                    <p className="text-[10px] italic text-slate-600">"{c.lgiMinute || 'No minute'}"</p>
+                  </div>
+                  <div className="p-4 bg-white/50 rounded-2xl border border-emerald-50">
+                    <p className="text-[7px] font-black uppercase text-slate-400 mb-1">ZI Minute</p>
+                    <p className="text-[10px] italic text-slate-600">"{c.ziMinute || 'No minute'}"</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                   {c.responseImage && <button className="px-4 py-2 bg-white rounded-lg text-[8px] font-black uppercase shadow-sm border" onClick={() => window.open(c.responseImage)}>View Response Photo</button>}
+                   <button onClick={() => updateData(db, "cdr_cases", c.id, { status: 'Forwarded_to_CDR' })} className="px-4 py-2 bg-[#004d40] text-white rounded-lg text-[8px] font-black uppercase shadow-sm ml-auto">Process & Close</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {entries.map((e: any) => (
           <div key={e.id} className="bg-white p-12 rounded-[3.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100">
@@ -536,6 +604,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
   const [activeQuery, setActiveQuery] = useState<{ id: string, text: string } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -557,12 +626,31 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
     }
   };
 
+  const handleFileUpload = async (id: string, field: 'responseImage' | 'evidenceDocuments', files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    try {
+      if (field === 'responseImage') {
+        const base64 = await fileToBase64(files[0]);
+        await updateData(db, "cdr_cases", id, { [field]: base64 });
+      } else {
+        const base64Array = await Promise.all(Array.from(files).map(f => fileToBase64(f)));
+        await updateData(db, "cdr_cases", id, { [field]: base64Array });
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Upload failed.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleStatusUpdate = async (id: string, status: CDRStatus) => {
     await updateData(db, "cdr_cases", id, { status });
   };
 
-  const handleMinuteUpdate = async (id: string, minute: string) => {
-    await updateData(db, "cdr_cases", id, { lgiMinute: minute });
+  const handleMinuteUpdate = async (id: string, field: 'lgiMinute' | 'ziMinute', text: string) => {
+    await updateData(db, "cdr_cases", id, { [field]: text });
   };
 
   return (
@@ -601,9 +689,10 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                 <span className={`px-4 py-2 rounded-full text-[9px] font-black uppercase border ${
                   cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' :
                   cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                  'bg-blue-50 text-blue-600 border-blue-100'
+                  cm.status === 'Forwarded_to_ZI' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                  'bg-indigo-50 text-indigo-600 border-indigo-100'
                 }`}>
-                  {cm.status || 'Pending'}
+                  {cm.status?.replace(/_/g, ' ') || 'Pending'}
                 </span>
                 <button onClick={() => deleteData(db, "cdr_cases", cm.id)} className="text-red-300 hover:text-red-500"><TrashIcon /></button>
              </div>
@@ -633,24 +722,84 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                </div>
              )}
 
-             {cm.status === 'Responded' && (
+             {/* LGI Interaction Section */}
+             {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded') && (
                <div className="p-10 bg-blue-50/30 rounded-[2.5rem] border-2 border-blue-100/50 mb-10 animate-official">
                   <p className="text-[9px] font-black text-blue-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                     <FileTextIcon /> LGI ADMINISTRATIVE MINUTE / RECOMMENDATION
+                     <PlusIcon /> UPLOAD MEMBER RESPONSE & EVIDENCE
                   </p>
-                  <textarea 
-                    className="w-full p-6 bg-white rounded-2xl text-xs font-medium border border-blue-100 outline-none focus:ring-4 focus:ring-blue-50 transition-all h-32"
-                    placeholder="Enter your assessment and recommendation for the Zonal Office..."
-                    defaultValue={cm.lgiMinute || ''}
-                    onBlur={(e) => handleMinuteUpdate(cm.id, e.target.value)}
-                  />
-                  <p className="text-[8px] font-bold text-blue-400 mt-2 italic">* Auto-saves on blur</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase block mb-2">Written Response Photo</label>
+                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-[8px] w-full" />
+                      {cm.responseImage && <div className="mt-2 w-16 h-16 rounded-lg bg-blue-100 border overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black text-slate-400 uppercase block mb-2">Supporting Evidence (Multiple)</label>
+                      <input type="file" accept="image/*" multiple onChange={(e) => handleFileUpload(cm.id, 'evidenceDocuments', e.target.files)} className="text-[8px] w-full" />
+                      <div className="flex gap-2 mt-2">
+                        {cm.evidenceDocuments?.map((src, i) => (
+                          <div key={i} className="w-12 h-12 rounded-lg bg-blue-100 border overflow-hidden"><img src={src} className="w-full h-full object-cover" /></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-2">LGI Administrative Minute</label>
+                    <textarea 
+                      className="w-full p-6 bg-white rounded-2xl text-xs font-medium border border-blue-100 outline-none h-24"
+                      placeholder="Input your observation and minute for the Zonal Office..."
+                      defaultValue={cm.lgiMinute || ''}
+                      onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)}
+                    />
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button 
+                      onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')}
+                      className="px-8 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700"
+                    >
+                      Forward to Zonal Office (ZI)
+                    </button>
+                  </div>
+               </div>
+             )}
+
+             {/* ZI Interaction Section */}
+             {userRole === 'ZI' && (cm.status === 'Forwarded_to_ZI' || cm.status === 'Minuted_to_CIM') && (
+               <div className="p-10 bg-indigo-50/30 rounded-[2.5rem] border-2 border-indigo-100/50 mb-10 animate-official">
+                  <p className="text-[9px] font-black text-indigo-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                     <FileTextIcon /> ZI ADMINISTRATIVE REVIEW & FORWARDING
+                  </p>
+                  <div className="grid grid-cols-2 gap-8 mb-6">
+                    <div className="space-y-2">
+                      <p className="text-[8px] font-black text-slate-400 uppercase">LGI Minute:</p>
+                      <p className="text-xs italic text-slate-600">"{cm.lgiMinute || 'No LGI Minute'}"</p>
+                      {cm.responseImage && <button onClick={() => window.open(cm.responseImage)} className="text-[8px] text-blue-600 underline uppercase font-black">Open Response Document</button>}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-2">ZI Administrative Minute</label>
+                    <textarea 
+                      className="w-full p-6 bg-white rounded-2xl text-xs font-medium border border-indigo-100 outline-none h-24"
+                      placeholder="Enter Zonal Office review and instruction for CIM..."
+                      defaultValue={cm.ziMinute || ''}
+                      onBlur={(e) => handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)}
+                    />
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button 
+                      onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')}
+                      className="px-8 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700"
+                    >
+                      Minute & Forward to CIM
+                    </button>
+                  </div>
                </div>
              )}
 
              <div className="flex justify-between items-center border-t border-slate-50 pt-8 no-print">
                 <div className="flex gap-2">
-                   {userRole === 'ZI' && (
+                   {userRole === 'ZI' && cm.status === 'Pending' && (
                      <button 
                        onClick={() => handleGenerateQuery(cm)} 
                        disabled={isGenerating}
@@ -666,8 +815,9 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                     >
                        <option value="Pending">Pending</option>
                        <option value="Responded">Responded</option>
-                       <option value="Minuted_to_CIM">Minute to CIM</option>
-                       <option value="Forwarded_to_CDR">Forward to NDHQ</option>
+                       <option value="Forwarded_to_ZI">Forward to ZI</option>
+                       <option value="Minuted_to_CIM">Forward to CIM</option>
+                       <option value="Forwarded_to_CDR">Process to CDR (Close)</option>
                     </select>
                 </div>
                 <div className="flex gap-3">

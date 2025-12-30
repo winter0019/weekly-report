@@ -52,7 +52,7 @@ export interface SAEDCenter {
   dateAdded: string;
 }
 
-export type CDRStatus = 'Pending' | 'Responded' | 'Minuted_to_CIM' | 'Forwarded_to_CDR';
+export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_to_CIM' | 'Forwarded_to_CDR';
 
 export interface CDRCase {
   id: string;
@@ -67,6 +67,8 @@ export interface CDRCase {
   responseContent?: string;
   lgiMinute?: string;
   ziMinute?: string;
+  responseImage?: string; // Base64 string
+  evidenceDocuments?: string[]; // Array of Base64 strings
 }
 
 export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR';
