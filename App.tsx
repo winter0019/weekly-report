@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ReportCategory, 
@@ -22,6 +23,7 @@ import {
 } from './components/Icons';
 import { initFirebase, subscribeToCollection, addData, updateData, deleteData } from './services/firebaseService';
 import { generateDisciplinaryQuery } from './services/geminiService';
+import { generateOfficialPDF } from './services/pdfService';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -126,15 +128,13 @@ const App: React.FC = () => {
             unsubs.push(subscribeToCollection(db, "saed_centers", (data) => active && setSAEDEntries(data)));
             unsubs.push(subscribeToCollection(db, "cdr_cases", (data) => active && setCdrEntries(data)));
             
-            // Force load finish after a small delay regardless of initial connection status
-            // so cached data can be used in offline mode immediately.
             setTimeout(() => { 
               if (active) setIsDbLoaded(true); 
             }, 500);
           }
         } catch (err) {
           console.error("Sync error:", err);
-          if (active) setIsDbLoaded(true); // Ensure UI shows up even on sync error
+          if (active) setIsDbLoaded(true);
         }
       };
       
@@ -192,7 +192,7 @@ const App: React.FC = () => {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-950 via-slate-900 to-black">
-        <form onSubmit={handleLogin} className="bg-white p-6 sm:p-12 rounded-3xl sm:rounded-[3.5rem] shadow-2xl w-full max-w-xl space-y-6 sm:space-y-10 animate-official border-[6px] sm:border-[10px] border-emerald-900/10">
+        <form onSubmit={handleLogin} className="bg-white p-6 sm:p-12 rounded-3xl sm:rounded-[3.5rem] shadow-2xl w-full max-w-xl space-y-6 sm:space-y-10 animate-official border-[6px] sm:border-[10px] border-emerald-950/10">
           <div className="text-center">
             <div className="w-16 h-16 sm:w-24 h-24 bg-[#004d40] rounded-2xl sm:rounded-[2rem] mx-auto mb-4 sm:mb-8 flex items-center justify-center shadow-2xl ring-4 sm:ring-8 ring-emerald-50 text-white font-serif-heading text-2xl sm:text-4xl font-black italic">NYSC</div>
             <h1 className="text-2xl sm:text-4xl font-black text-slate-900 uppercase tracking-tighter mb-2 font-serif-heading">Command Portal</h1>
@@ -234,14 +234,14 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      <header className="bg-[#004d40] text-white py-4 sm:py-5 px-4 sm:px-8 shadow-2xl mx-2 sm:mx-8 rounded-2xl sm:rounded-[1.5rem] flex flex-col sm:flex-row items-center justify-between no-print border-b-4 border-black/10 relative z-50 gap-4">
-        <div className="flex items-center gap-4 sm:gap-6 w-full sm:w-auto">
+      <header className="bg-[#004d40] text-white py-4 sm:py-5 px-4 sm:px-8 shadow-2xl mx-2 sm:mx-8 rounded-2xl sm:rounded-[1.5rem] flex flex-col lg:flex-row items-center justify-between no-print border-b-4 border-black/10 relative z-50 gap-4">
+        <div className="flex items-center gap-4 sm:gap-6 w-full lg:w-auto">
           <div className="w-10 h-10 sm:w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center border border-white/5 cursor-pointer hover:bg-white/20 transition-all shrink-0">
             <DashboardIcon />
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tighter font-serif-heading leading-none">
+              <h1 className="text-base sm:text-2xl font-black uppercase tracking-tighter font-serif-heading leading-none">
                 NYSC ZONAL OFFICE, DAURA
               </h1>
               {!isOnline && (
@@ -254,9 +254,9 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 sm:gap-4 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4 w-full lg:w-auto">
           {userRole === 'ZI' ? (
-            <div className="flex flex-wrap gap-2 sm:gap-4 w-full sm:w-auto justify-center">
+            <div className="flex flex-wrap gap-2 sm:gap-4 w-full lg:w-auto justify-center">
               <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-3 sm:px-4 overflow-hidden">
                 <select value={reportingPeriod} onChange={e => setReportingPeriod(e.target.value)} className="bg-transparent text-[8px] sm:text-[10px] font-black uppercase outline-none py-2 sm:py-3 pr-2 sm:pr-4 border-r border-white/10">
                   <option value="WEEKLY" className="text-slate-900">WEEKLY</option>
@@ -298,7 +298,7 @@ const App: React.FC = () => {
             </div>
             <div>
                <p className="text-[10px] font-black uppercase text-orange-950">Offline Mode Active</p>
-               <p className="text-[8px] font-bold text-orange-700 uppercase">You can still add and view records. Changes will sync when reconnected.</p>
+               <p className="text-[8px] font-bold text-orange-700 uppercase">Synced data available locally.</p>
             </div>
           </div>
         )}
@@ -329,10 +329,6 @@ const App: React.FC = () => {
                </div>
             </div>
           </div>
-          <div className="absolute top-10 right-10 hidden sm:flex gap-4 opacity-10 pointer-events-none">
-             <PlusIcon />
-             <FileTextIcon />
-          </div>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-6 sm:gap-12">
@@ -355,22 +351,31 @@ const App: React.FC = () => {
       {isExportModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 sm:p-6" onClick={() => setIsExportModalOpen(false)}>
           <div className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[3.5rem] w-full max-w-xl shadow-2xl animate-official max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-             <h2 className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-[#004d40] mb-6 sm:mb-8">Registry Extraction Terminal</h2>
+             <h2 className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-[#004d40] mb-6 sm:mb-8 text-center sm:text-left">Registry Extraction Terminal</h2>
              <div className="space-y-3 sm:space-y-4">
                {[
-                 { id: 'CWHS', label: 'CW&HS Health Registry', data: cwhsEntries },
-                 { id: 'CIM', label: 'CIM Audit Records', data: cimEntries },
-                 { id: 'CDR', label: 'CD&R Misconduct Logs', data: cdrEntries },
-                 { id: 'SAED', label: 'SAED Center Hubs', data: saedEntries }
+                 { id: 'CWHS', label: 'CW&HS Health Registry', data: cwhsEntries, headers: ['Name', 'Code', 'LGA', 'Category'], extract: (d: any) => [d.name, d.stateCode, d.lga, d.category] },
+                 { id: 'CIM', label: 'CIM Audit Records', data: cimEntries, headers: ['Month', 'LGA', 'Cleared', 'Defaulters'], extract: (d: any) => [d.month, d.lga, d.clearedCount, d.unclearedList?.length || 0] },
+                 { id: 'CDR', label: 'CD&R Misconduct Logs', data: cdrEntries, headers: ['Name', 'Code', 'PPA', 'Status'], extract: (d: any) => [d.name, d.stateCode, d.ppa, d.status] },
+                 { id: 'SAED', label: 'SAED Center Hubs', data: saedEntries, headers: ['Center', 'LGA', 'Enrollment', 'Fee'], extract: (d: any) => [d.centerName, d.lga, d.cmCount, d.fee] }
                ].map(m => (
-                 <button 
-                  key={m.id} 
-                  onClick={() => downloadCSV(m.data, m.id, m.id)}
-                  className="w-full p-4 sm:p-6 bg-slate-50 hover:bg-emerald-50 rounded-2xl flex justify-between items-center transition-all border border-transparent hover:border-emerald-100 group"
-                 >
-                    <span className="font-black uppercase tracking-widest text-[10px] sm:text-sm text-left">{m.label}</span>
-                    <div className="group-hover:scale-125 transition-transform"><DownloadIcon /></div>
-                 </button>
+                 <div key={m.id} className="w-full p-4 sm:p-6 bg-slate-50 rounded-2xl border border-transparent flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <span className="font-black uppercase tracking-widest text-[10px] sm:text-sm text-center sm:text-left">{m.label}</span>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => downloadCSV(m.data, m.id, m.id)}
+                        className="p-3 bg-emerald-100 text-emerald-700 rounded-xl hover:bg-emerald-200 transition-colors flex items-center gap-2 text-[10px] font-black uppercase"
+                      >
+                        <DownloadIcon /> CSV
+                      </button>
+                      <button 
+                        onClick={() => generateOfficialPDF({ title: m.label, headers: m.headers, rows: m.data.map(m.extract) }, 'LEDGER')}
+                        className="p-3 bg-[#004d40] text-white rounded-xl hover:bg-black transition-colors flex items-center gap-2 text-[10px] font-black uppercase"
+                      >
+                        <FileTextIcon /> PDF
+                      </button>
+                    </div>
+                 </div>
                ))}
              </div>
           </div>
@@ -421,7 +426,7 @@ const CWHSModule = ({ entries, lga, db }: any) => {
         {entries.map((e: any) => (
           <div key={e.id} className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[3.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
             <div className="absolute top-6 sm:top-12 right-6 sm:right-12 flex gap-4 sm:gap-6 opacity-40 group-hover:opacity-100 transition-opacity no-print">
-               <button className="hover:text-emerald-700" onClick={() => downloadCSV([e], e.name, 'CWHS')}><DownloadIcon /></button>
+               <button className="hover:text-emerald-700" onClick={() => generateOfficialPDF(e, 'SINGLE_CWHS')} title="Download PDF"><DownloadIcon /></button>
                <input type="checkbox" className="w-5 h-5 sm:w-6 h-6 rounded-lg accent-[#004d40]" />
             </div>
             <div className="flex flex-col sm:flex-row justify-between items-start mb-4 sm:mb-6 gap-4">
@@ -451,7 +456,7 @@ const CWHSModule = ({ entries, lga, db }: any) => {
                >
                  <WhatsAppIcon />
                </button>
-               <button className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200 hover:scale-110 transition-all"><FileTextIcon /></button>
+               <button onClick={() => generateOfficialPDF(e, 'SINGLE_CWHS')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200 hover:scale-110 transition-all"><FileTextIcon /></button>
                <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="w-10 h-10 sm:w-12 h-12 bg-red-50 text-red-500 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-red-100 hover:scale-110 transition-all"><TrashIcon /></button>
             </div>
           </div>
@@ -530,7 +535,7 @@ const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
 
         {forwardedCases.length > 0 && (
           <div className="space-y-4">
-            <h3 className="text-[8px] sm:text-[10px] font-black uppercase text-emerald-800 tracking-widest ml-4">Forwarded from Zonal Office</h3>
+            <h3 className="text-[8px] sm:text-[10px] font-black uppercase text-emerald-800 tracking-widest ml-4">Forwarded Cases</h3>
             {forwardedCases.map((c: CDRCase) => (
               <div key={c.id} className="bg-emerald-50 p-6 sm:p-10 rounded-[2rem] sm:rounded-[3.5rem] border border-emerald-100 relative group animate-official">
                 <div className="flex flex-col sm:flex-row justify-between items-start mb-4 gap-2">
@@ -538,21 +543,21 @@ const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
                      <h4 className="text-lg sm:text-xl font-black uppercase text-slate-800">{c.name}</h4>
                      <p className="text-[9px] sm:text-[10px] font-bold text-emerald-800">{c.stateCode} | {c.lga}</p>
                    </div>
-                   <span className="px-3 py-1 bg-white border border-emerald-100 text-[7px] sm:text-[8px] font-black uppercase rounded-full">Forwarded to CIM</span>
+                   <span className="px-3 py-1 bg-white border border-emerald-100 text-[7px] sm:text-[8px] font-black uppercase rounded-full">Minuted to CIM</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div className="p-3 sm:p-4 bg-white/50 rounded-2xl border border-emerald-50">
-                    <p className="text-[6px] sm:text-[7px] font-black uppercase text-slate-400 mb-1">LGI Minute</p>
+                    <p className="text-[6px] sm:text-[7px] font-black uppercase text-slate-400 mb-1">LGI Observation</p>
                     <p className="text-[9px] sm:text-[10px] italic text-slate-600 line-clamp-3">"{c.lgiMinute || 'No minute'}"</p>
                   </div>
                   <div className="p-3 sm:p-4 bg-white/50 rounded-2xl border border-emerald-50">
-                    <p className="text-[6px] sm:text-[7px] font-black uppercase text-slate-400 mb-1">ZI Minute</p>
+                    <p className="text-[6px] sm:text-[7px] font-black uppercase text-slate-400 mb-1">ZI Instruction</p>
                     <p className="text-[9px] sm:text-[10px] italic text-slate-600 line-clamp-3">"{c.ziMinute || 'No minute'}"</p>
                   </div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                   {c.responseImage && <button className="px-3 py-2 bg-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm border" onClick={() => window.open(c.responseImage)}>View Photo</button>}
-                   <button onClick={() => updateData(db, "cdr_cases", c.id, { status: 'Forwarded_to_CDR' })} className="px-4 py-2 bg-[#004d40] text-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm ml-auto">Process & Close</button>
+                   {c.responseImage && <button className="px-3 py-2 bg-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm border" onClick={() => window.open(c.responseImage)}>View Response</button>}
+                   <button onClick={() => updateData(db, "cdr_cases", c.id, { status: 'Forwarded_to_CDR' })} className="px-4 py-2 bg-[#004d40] text-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm ml-auto">Archive & Close</button>
                 </div>
               </div>
             ))}
@@ -596,11 +601,11 @@ const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-3xl z-[300] flex items-center justify-center p-2 sm:p-6 animate-official">
           <div className="bg-white w-full max-w-5xl rounded-[2rem] sm:rounded-[4rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
             <div className="bg-[#004d40] p-6 sm:p-12 text-white flex justify-between items-center shrink-0">
-               <div><h3 className="text-xl sm:text-4xl font-black uppercase font-serif-heading">Detailed Defaulters Ledger</h3><p className="text-[8px] sm:text-xs font-bold text-emerald-400 tracking-widest mt-1">Global Audit Aggregation</p></div>
+               <div><h3 className="text-xl sm:text-4xl font-black uppercase font-serif-heading">Detailed Defaulters Ledger</h3><p className="text-[8px] sm:text-xs font-bold text-emerald-400 tracking-widest mt-1">Audit Extract</p></div>
                <button onClick={() => setIsLedgerOpen(false)} className="w-10 h-10 sm:w-16 h-16 bg-white/10 hover:bg-red-600 rounded-full flex items-center justify-center text-xl sm:text-2xl transition-all shrink-0">✕</button>
             </div>
             <div className="flex-1 overflow-x-auto p-4 sm:p-12 bg-slate-50">
-               <table className="w-full border-separate border-spacing-y-4 min-w-[600px]">
+               <table className="w-full border-separate border-spacing-y-4 min-w-[650px]">
                   <thead>
                     <tr className="text-[8px] sm:text-[10px] font-black uppercase text-slate-400 text-left">
                        <th className="px-4 sm:px-8 py-4">Corps Member Identity</th>
@@ -621,10 +626,16 @@ const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
                     ))}
                   </tbody>
                </table>
-               {allDefaulters.length === 0 && <div className="h-full flex items-center justify-center text-slate-300 font-black uppercase tracking-widest italic text-sm">No Data Available</div>}
+               {allDefaulters.length === 0 && <div className="h-full flex items-center justify-center text-slate-300 font-black uppercase tracking-widest italic text-sm">No Defaulters Listed</div>}
             </div>
-            <div className="p-4 sm:p-8 bg-white border-t flex justify-end">
-               <button onClick={() => window.print()} className="w-full md:w-auto px-6 sm:px-10 py-3 sm:py-5 bg-slate-900 text-white rounded-[1rem] sm:rounded-[1.5rem] font-black uppercase text-[10px] sm:text-xs tracking-widest">Download Detailed Report</button>
+            <div className="p-4 sm:p-8 bg-white border-t flex justify-end gap-3">
+               <button 
+                  onClick={() => generateOfficialPDF({ title: 'Defaulters Ledger', headers: ['Name', 'Code', 'LGA', 'Month', 'Reason'], rows: allDefaulters.map(d => [d.name, d.code, d.lga, d.month, d.reason]) }, 'LEDGER')} 
+                  className="w-full md:w-auto px-6 sm:px-10 py-3 sm:py-5 bg-[#004d40] text-white rounded-[1rem] sm:rounded-[1.5rem] font-black uppercase text-[10px] sm:text-xs tracking-widest"
+               >
+                 Download PDF Ledger
+               </button>
+               <button onClick={() => downloadCSV(allDefaulters, 'DEFAULTERS_LEDGER', 'CIM')} className="w-full md:w-auto px-6 sm:px-10 py-3 sm:py-5 bg-slate-900 text-white rounded-[1rem] sm:rounded-[1.5rem] font-black uppercase text-[10px] sm:text-xs tracking-widest">Extraction CSV</button>
             </div>
           </div>
         </div>
@@ -707,12 +718,12 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
         <div className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[4rem] shadow-sm border border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-6">
            <div className="text-center sm:text-left">
              <h3 className="text-2xl sm:text-4xl font-black uppercase font-serif-heading text-[#004d40]">Active CDR Cases</h3>
-             <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Legal & Disciplinary Review</p>
+             <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Disciplinary Surveillance</p>
            </div>
            <div className="flex gap-4">
               <div className="text-center px-4 sm:px-6 py-2 sm:py-3 bg-slate-50 rounded-2xl border">
                  <p className="text-xl sm:text-2xl font-black text-slate-800">{entries.length}</p>
-                 <p className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase">Total Files</p>
+                 <p className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase">Total Cases</p>
               </div>
            </div>
         </div>
@@ -746,11 +757,11 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
 
              {cm.responseContent && (
                <div className="p-6 sm:p-10 bg-emerald-50/30 rounded-[1.5rem] sm:rounded-[2.5rem] border-2 border-emerald-100/50 mb-6 sm:mb-10 animate-official">
-                  <p className="text-[7px] sm:text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-4 sm:mb-6 flex items-center justify-between">
-                     <span>Formal Query Document</span>
-                     <button onClick={() => window.print()} className="text-[7px] underline font-bold">PRINT</button>
+                  <p className="text-[7px] sm:text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-4 sm:mb-6 flex justify-between items-center">
+                     <span>Formal Query Data</span>
+                     <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="bg-emerald-100 px-3 py-1 rounded-lg text-emerald-700 text-[8px] font-black uppercase hover:bg-emerald-200">Download Official PDF</button>
                   </p>
-                  <pre className="text-[10px] sm:text-xs font-official-document text-slate-700 whitespace-pre-wrap leading-relaxed">
+                  <pre className="text-[10px] sm:text-xs font-official-document text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
                      {cm.responseContent}
                   </pre>
                </div>
@@ -764,19 +775,19 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                     <div>
                       <label className="text-[7px] font-black text-slate-400 uppercase block mb-2">Member Response Photo</label>
-                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-[7px] w-full file:mr-2 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-[7px] file:font-black file:bg-blue-50 file:text-blue-700" />
+                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-[7px] w-full" />
                       {cm.responseImage && <div className="mt-2 w-12 h-12 rounded-lg bg-blue-100 border overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
                     </div>
                     <div>
                       <label className="text-[7px] font-black text-slate-400 uppercase block mb-2">Evidence Documents</label>
-                      <input type="file" accept="image/*" multiple onChange={(e) => handleFileUpload(cm.id, 'evidenceDocuments', e.target.files)} className="text-[7px] w-full file:mr-2 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-[7px] file:font-black file:bg-blue-50 file:text-blue-700" />
+                      <input type="file" accept="image/*" multiple onChange={(e) => handleFileUpload(cm.id, 'evidenceDocuments', e.target.files)} className="text-[7px] w-full" />
                     </div>
                   </div>
                   <div className="mt-4 sm:mt-6">
-                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">LGI Minute</label>
+                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">LGI Administrative Minute</label>
                     <textarea 
                       className="w-full p-4 sm:p-6 bg-white rounded-xl sm:rounded-2xl text-xs font-medium border border-blue-100 outline-none h-20 sm:h-24"
-                      placeholder="Input administrative minute..."
+                      placeholder="Observation and recommendation..."
                       defaultValue={cm.lgiMinute || ''}
                       onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)}
                     />
@@ -786,7 +797,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                       onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')}
                       className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-blue-600 text-white rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg"
                     >
-                      Forward to ZI
+                      Minute to ZI
                     </button>
                   </div>
                </div>
@@ -795,14 +806,14 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
              {userRole === 'ZI' && (cm.status === 'Forwarded_to_ZI' || cm.status === 'Minuted_to_CIM') && (
                <div className="p-6 sm:p-10 bg-indigo-50/30 rounded-[1.5rem] sm:rounded-[2.5rem] border-2 border-indigo-100/50 mb-6 sm:mb-10 animate-official">
                   <p className="text-[7px] sm:text-[9px] font-black text-indigo-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                     <FileTextIcon /> ZI REVIEW
+                     <FileTextIcon /> ZI ADMINISTRATIVE REVIEW
                   </p>
                   <div className="mb-4">
-                      <p className="text-[6px] sm:text-[8px] font-black text-slate-400 uppercase mb-1">LGI Minute Preview:</p>
+                      <p className="text-[6px] sm:text-[8px] font-black text-slate-400 uppercase mb-1">LGI Minute:</p>
                       <p className="text-[10px] sm:text-xs italic text-slate-600 line-clamp-2">"{cm.lgiMinute || 'No LGI Minute'}"</p>
                   </div>
                   <div>
-                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">ZI Administrative Minute</label>
+                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">ZI Administrative Instruction</label>
                     <textarea 
                       className="w-full p-4 sm:p-6 bg-white rounded-xl sm:rounded-2xl text-xs font-medium border border-indigo-100 outline-none h-20 sm:h-24"
                       placeholder="Enter instruction for CIM..."
@@ -815,7 +826,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                       onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')}
                       className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-indigo-600 text-white rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg"
                     >
-                      Forward to CIM
+                      Process to CIM
                     </button>
                   </div>
                </div>
@@ -829,7 +840,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                        disabled={isGenerating}
                        className="flex-1 xs:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-[#004d40] text-white rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-widest disabled:opacity-50"
                      >
-                        {isGenerating ? '...' : 'GENERATE AI QUERY'}
+                        {isGenerating ? '...' : 'AI QUERY'}
                      </button>
                    )}
                    <select 
@@ -839,14 +850,14 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                     >
                        <option value="Pending">Pending</option>
                        <option value="Responded">Responded</option>
-                       <option value="Forwarded_to_ZI">ZI Review</option>
+                       <option value="Forwarded_to_ZI">ZI Desk</option>
                        <option value="Minuted_to_CIM">CIM Desk</option>
                        <option value="Forwarded_to_CDR">Closed</option>
                     </select>
                 </div>
                 <div className="flex gap-2 sm:gap-3 ml-auto">
                    <button className="w-10 h-10 sm:w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-emerald-100" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDR CASE: ${cm.name} (${cm.stateCode}). Status: ${cm.status}`)}`)}><WhatsAppIcon /></button>
-                   <button className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200"><FileTextIcon /></button>
+                   <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200"><FileTextIcon /></button>
                 </div>
              </div>
           </div>
