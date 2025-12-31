@@ -340,7 +340,7 @@ const App: React.FC = () => {
            ) : (
              <>
                {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} lga={lgaContext!} db={dbRef.current} />}
-               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} cdrCases={cdrEntries} />}
+               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} cdrCases={cdrEntries} userRole={userRole} />}
                {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
                {division === 'SAED' && <SAEDModule entries={filteredData.saed} lga={lgaContext!} db={dbRef.current} />}
              </>
@@ -468,7 +468,7 @@ const CWHSModule = ({ entries, lga, db }: any) => {
 };
 
 /* --- CIM Module --- */
-const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
+const CIMModule = ({ entries, db, lga, cdrCases, userRole }: any) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
   const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string}[]>([]);
@@ -557,7 +557,9 @@ const CIMModule = ({ entries, db, lga, cdrCases }: any) => {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                    {c.responseImage && <button className="px-3 py-2 bg-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm border" onClick={() => window.open(c.responseImage)}>View Response</button>}
-                   <button onClick={() => updateData(db, "cdr_cases", c.id, { status: 'Forwarded_to_CDR' })} className="px-4 py-2 bg-[#004d40] text-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm ml-auto">Archive & Close</button>
+                   {userRole === 'ZI' && (
+                     <button onClick={() => updateData(db, "cdr_cases", c.id, { status: 'Forwarded_to_CDR' })} className="px-4 py-2 bg-[#004d40] text-white rounded-lg text-[7px] sm:text-[8px] font-black uppercase shadow-sm ml-auto">Archive & Close</button>
+                   )}
                 </div>
               </div>
             ))}
@@ -852,7 +854,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                        <option value="Responded">Responded</option>
                        <option value="Forwarded_to_ZI">ZI Desk</option>
                        <option value="Minuted_to_CIM">CIM Desk</option>
-                       <option value="Forwarded_to_CDR">Closed</option>
+                       {userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed</option>}
                     </select>
                 </div>
                 <div className="flex gap-2 sm:gap-3 ml-auto">
