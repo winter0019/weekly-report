@@ -1,3 +1,4 @@
+
 export enum ReportCategory {
   ABSCONDED = 'Absconded',
   SICK = 'Sick/Hospitalized',
@@ -30,6 +31,12 @@ export interface CorpsMemberEntry {
   dateOfDeath?: string;
 }
 
+export interface CIMBatchDisposition {
+  batch: string;
+  males: number;
+  females: number;
+}
+
 export interface CIMClearance {
   id: string;
   lga: DauraLga;
@@ -39,6 +46,7 @@ export interface CIMClearance {
   totalCMs: number;
   clearedCount: number;
   unclearedList: { name: string; code: string; reason: string }[];
+  disposition: CIMBatchDisposition[];
   dateAdded: string;
 }
 
@@ -49,6 +57,25 @@ export interface SAEDCenter {
   address: string;
   cmCount: number;
   fee: number;
+  dateAdded: string;
+}
+
+export interface CDSGroup {
+  id: string;
+  lga: DauraLga;
+  groupName: string;
+  meetingDay: string;
+  dateAdded: string;
+}
+
+export interface CDSPersonalProject {
+  id: string;
+  lga: DauraLga;
+  cmName: string;
+  stateCode: string;
+  projectName: string;
+  description: string;
+  status: 'Ongoing' | 'Completed';
   dateAdded: string;
 }
 
@@ -71,4 +98,4 @@ export interface CDRCase {
   evidenceDocuments?: string[]; // Array of Base64 strings
 }
 
-export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR';
+export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR' | 'CDS';

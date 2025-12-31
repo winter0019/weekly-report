@@ -131,7 +131,9 @@ export const generateOfficialPDF = (data: any, type: string) => {
       { title: '1. CW&HS (Corps Welfare & Health Services)', headers: ['Name', 'Code', 'LGA', 'Category'], rows: data.sections.cwhs },
       { title: '2. CIM (Inspection & Monitoring)', headers: ['Month', 'LGA', 'Cleared', 'Defaulters'], rows: data.sections.cim },
       { title: '3. CD&R (Discipline & Reward)', headers: ['Name', 'Code', 'LGA', 'Status'], rows: data.sections.cdr },
-      { title: '4. SAED (Skill Acquisition Hub)', headers: ['Center', 'LGA', 'Enrollment', 'Fee (N)'], rows: data.sections.saed }
+      { title: '4. SAED (Skill Acquisition Hub)', headers: ['Center', 'LGA', 'Enrollment', 'Fee (N)'], rows: data.sections.saed },
+      { title: '5. CDS (Community Development Groups)', headers: ['Group Name', 'LGA', 'Meeting Day'], rows: data.sections.cdsGroups },
+      { title: '6. CDS (Personal Projects)', headers: ['CM Name', 'Code', 'Project Name', 'Status'], rows: data.sections.cdsProjects }
     ];
 
     sections.forEach((section) => {
@@ -149,13 +151,12 @@ export const generateOfficialPDF = (data: any, type: string) => {
         startY: currentY + 5,
         margin: { left: 15, right: 15 },
         head: [section.headers],
-        body: section.rows.length > 0 ? section.rows : [['No records found for this period', '', '', '']],
+        body: section.rows && section.rows.length > 0 ? section.rows : [['No records found', '', '', '']],
         theme: 'grid',
         headStyles: { fillColor: [0, 77, 64], textColor: 255 },
         styles: { fontSize: 8 },
         didDrawPage: (dt: any) => { currentY = dt.cursor.y + 15; }
       });
-      // Update Y after each table
       currentY = (doc as any).lastAutoTable.finalY + 15;
     });
   }
