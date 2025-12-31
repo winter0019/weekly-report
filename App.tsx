@@ -189,6 +189,19 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, userRole, lgaContext, ziStationFilter, searchQuery]);
 
+  const handleGenerateComprehensiveReport = () => {
+    const reportData = {
+      period: reportingPeriod,
+      sections: {
+        cwhs: filteredData.cwhs.map(d => [d.name, d.stateCode, d.lga, d.category]),
+        cim: filteredData.cim.map(d => [d.month, d.lga, d.clearedCount, d.unclearedList?.length || 0]),
+        cdr: filteredData.cdr.map(d => [d.name, d.stateCode, d.lga, d.status]),
+        saed: filteredData.saed.map(d => [d.centerName, d.lga, d.cmCount, d.fee])
+      }
+    };
+    generateOfficialPDF(reportData, 'COMPREHENSIVE');
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-950 via-slate-900 to-black">
@@ -263,8 +276,8 @@ const App: React.FC = () => {
                   <option value="MONTHLY" className="text-slate-900">MONTHLY</option>
                   <option value="QUARTERLY" className="text-slate-900">QUARTERLY</option>
                 </select>
-                <button className="flex items-center gap-2 pl-3 sm:pl-4 text-[8px] sm:text-[10px] font-black uppercase text-emerald-300 hover:text-white transition-colors">
-                  <FileTextIcon /> <span className="hidden xs:inline">REPORT</span>
+                <button onClick={handleGenerateComprehensiveReport} className="flex items-center gap-2 pl-3 sm:pl-4 text-[8px] sm:text-[10px] font-black uppercase text-emerald-300 hover:text-white transition-colors">
+                  <FileTextIcon /> <span className="hidden xs:inline">GENERATE REPORT</span>
                 </button>
               </div>
               <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-3 sm:px-4">
@@ -281,7 +294,7 @@ const App: React.FC = () => {
           )}
           
           <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 bg-white/10 hover:bg-white/20 border border-white/5 rounded-xl transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest shadow-inner">
-            <DownloadIcon /> <span className="hidden md:inline">EXPORT</span>
+            <DownloadIcon /> <span className="hidden md:inline">BULK EXPORT</span>
           </button>
           
           <button onClick={handleLogout} className="p-2 sm:p-3 bg-white/5 hover:bg-red-600/40 rounded-xl border border-white/5 transition-all">
@@ -842,7 +855,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                        disabled={isGenerating}
                        className="flex-1 xs:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-[#004d40] text-white rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-widest disabled:opacity-50"
                      >
-                        {isGenerating ? '...' : 'AI QUERY'}
+                        {isGenerating ? '...' : 'AI FORMAL QUERY'}
                      </button>
                    )}
                    <select 
@@ -854,12 +867,12 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                        <option value="Responded">Responded</option>
                        <option value="Forwarded_to_ZI">ZI Desk</option>
                        <option value="Minuted_to_CIM">CIM Desk</option>
-                       {userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed</option>}
+                       {userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed/Archive</option>}
                     </select>
                 </div>
                 <div className="flex gap-2 sm:gap-3 ml-auto">
-                   <button className="w-10 h-10 sm:w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-emerald-100" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDR CASE: ${cm.name} (${cm.stateCode}). Status: ${cm.status}`)}`)}><WhatsAppIcon /></button>
-                   <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200"><FileTextIcon /></button>
+                   <button className="w-10 h-10 sm:w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-emerald-100" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDR CASE: ${cm.name} (${cm.stateCode}). Status: ${cm.status}`)}`)} title="Share via WhatsApp"><WhatsAppIcon /></button>
+                   <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200" title="Download Query PDF"><FileTextIcon /></button>
                 </div>
              </div>
           </div>
