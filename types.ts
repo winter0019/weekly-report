@@ -37,6 +37,21 @@ export interface CIMBatchDisposition {
   females: number;
 }
 
+export interface StationDisposition {
+  id: string;
+  lga: DauraLga;
+  totalMales: number;
+  totalFemales: number;
+  lastUpdated: string;
+  batches: CIMBatchDisposition[];
+}
+
+export interface CIMDefaulterLog {
+  action: string;
+  timestamp: string;
+  role: string;
+}
+
 export interface CIMClearance {
   id: string;
   lga: DauraLga;
@@ -45,7 +60,12 @@ export interface CIMClearance {
   femaleCount: number;
   totalCMs: number;
   clearedCount: number;
-  unclearedList: { name: string; code: string; reason: string }[];
+  unclearedList: { 
+    name: string; 
+    code: string; 
+    reason: string;
+    logs?: CIMDefaulterLog[];
+  }[];
   disposition: CIMBatchDisposition[];
   dateAdded: string;
 }
@@ -98,4 +118,4 @@ export interface CDRCase {
   evidenceDocuments?: string[]; // Array of Base64 strings
 }
 
-export type Division = 'CWHS' | 'CIM' | 'SAED' | 'CDR' | 'CDS';
+export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED';

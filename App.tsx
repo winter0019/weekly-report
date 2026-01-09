@@ -12,17 +12,24 @@ import {
   CDRStatus,
   CDSGroup,
   CDSPersonalProject,
-  CIMBatchDisposition
+  CIMBatchDisposition,
+  StationDisposition,
+  CIMDefaulterLog
 } from './types';
 import { 
   WhatsAppIcon, 
   LogOutIcon, 
   TrashIcon, 
   FileTextIcon, 
-  SearchIcon,
-  DashboardIcon,
-  DownloadIcon,
+  SearchIcon, 
+  DashboardIcon, 
+  DownloadIcon, 
   PlusIcon,
+  AbscondedIcon,
+  SickIcon,
+  KidnappedIcon,
+  MissingIcon,
+  DeceasedIcon
 } from './components/Icons';
 import { initFirebase, subscribeToCollection, addData, updateData, deleteData } from './services/firebaseService';
 import { generateDisciplinaryQuery } from './services/geminiService';
@@ -43,6 +50,14 @@ const SECURITY_PINS: Record<string, string> = {
   'Mai’Adua': '5555', 'Mashi': '6666', 'Dutsi': '7777', 'Mani': '8888', 'Bindawa': '9999'
 };
 
+const DIVISION_LABELS: Record<Division, string> = {
+  'CWHS': 'CW&HS',
+  'CIM': 'CIM',
+  'CDR': 'CD&R',
+  'CDS': 'CD',
+  'SAED': 'SAED'
+};
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -53,12 +68,12 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 const downloadCSV = (data: any[], filename: string, registry: string) => {
-  if (data.length === 0) return alert("No data to export.");
+  if (data.length === 0) return window.alert("No data to export.");
   
   let headersArr: string[] = [];
-  if (registry === 'CWHS') headersArr = ['name', 'stateCode', 'lga', 'category', 'details', 'dateOfDeath', 'dateAdded'];
+  if (registry === 'CWHS') headersArr = ['name', 'stateCode', 'lga', 'category', 'details', 'dateAdded'];
   else if (registry === 'CIM') headersArr = ['month', 'lga', 'maleCount', 'femaleCount', 'totalCMs', 'clearedCount', 'dateAdded'];
-  else if (registry === 'CDR') headersArr = ['name', 'stateCode', 'lga', 'ppa', 'misconduct', 'dateOfInfraction', 'status', 'lgiMinute', 'ziMinute', 'dateAdded'];
+  else if (registry === 'CDR') headersArr = ['name', 'stateCode', 'lga', 'ppa', 'misconduct', 'status', 'dateAdded'];
   else if (registry === 'SAED') headersArr = ['centerName', 'address', 'lga', 'cmCount', 'fee', 'dateAdded'];
   else if (registry === 'CDS_GROUPS') headersArr = ['groupName', 'lga', 'meetingDay', 'dateAdded'];
   else if (registry === 'CDS_PROJECTS') headersArr = ['cmName', 'stateCode', 'projectName', 'status', 'lga', 'dateAdded'];
@@ -76,20 +91,19 @@ const downloadCSV = (data: any[], filename: string, registry: string) => {
   
   const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n");
   const encodedUri = encodeURI(csvContent);
-  const link = document.createElement("a");
+  const link = (window as any).document.createElement("a");
   link.setAttribute("href", encodedUri);
   link.setAttribute("download", `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
-  document.body.appendChild(link);
+  (window as any).document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  (window as any).document.body.removeChild(link);
 };
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('daura_auth') === 'true');
-  const [userRole, setUserRole] = useState<UserRole | null>(() => localStorage.getItem('daura_role') as UserRole);
-  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => localStorage.getItem('daura_lga') as DauraLga);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => window.localStorage.getItem('daura_auth') === 'true');
+  const [userRole, setUserRole] = useState<UserRole | null>(() => window.localStorage.getItem('daura_role') as UserRole);
+  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => window.localStorage.getItem('daura_lga') as DauraLga);
   const [ziStationFilter, setZiStationFilter] = useState<string>('all');
-  const [reportingPeriod, setReportingPeriod] = useState<string>('WEEKLY');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   const [division, setDivision] = useState<Division>('CWHS');
@@ -99,6 +113,7 @@ const App: React.FC = () => {
   const [cdrEntries, setCdrEntries] = useState<CDRCase[]>([]);
   const [cdsGroups, setCdsGroups] = useState<CDSGroup[]>([]);
   const [cdsProjects, setCdsProjects] = useState<CDSPersonalProject[]>([]);
+  const [stationDispositions, setStationDispositions] = useState<StationDisposition[]>([]);
   
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [pin, setPin] = useState('');
@@ -111,11 +126,11 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    (window as any).addEventListener('online', handleOnline);
+    (window as any).addEventListener('offline', handleOffline);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      (window as any).removeEventListener('online', handleOnline);
+      (window as any).removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -136,10 +151,9 @@ const App: React.FC = () => {
             unsubs.push(subscribeToCollection(db, "cdr_cases", (data) => active && setCdrEntries(data)));
             unsubs.push(subscribeToCollection(db, "cds_groups", (data) => active && setCdsGroups(data)));
             unsubs.push(subscribeToCollection(db, "cds_projects", (data) => active && setCdsProjects(data)));
+            unsubs.push(subscribeToCollection(db, "station_disposition", (data) => active && setStationDispositions(data)));
             
-            setTimeout(() => { 
-              if (active) setIsDbLoaded(true); 
-            }, 500);
+            setTimeout(() => { if (active) setIsDbLoaded(true); }, 500);
           }
         } catch (err) {
           console.error("Sync error:", err);
@@ -159,17 +173,17 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       setUserRole(pendingLogin.role);
       setLgaContext(pendingLogin.lga);
-      localStorage.setItem('daura_auth', 'true');
-      localStorage.setItem('daura_role', pendingLogin.role);
-      if (pendingLogin.lga) localStorage.setItem('daura_lga', pendingLogin.lga);
+      window.localStorage.setItem('daura_auth', 'true');
+      window.localStorage.setItem('daura_role', pendingLogin.role);
+      if (pendingLogin.lga) window.localStorage.setItem('daura_lga', pendingLogin.lga);
     } else {
-      alert("Invalid Security PIN.");
+      window.alert("Invalid Security PIN.");
     }
   };
 
   const handleLogout = () => {
-    localStorage.clear();
-    location.reload();
+    window.localStorage.clear();
+    (window as any).location.reload();
   };
 
   const filteredData = useMemo(() => {
@@ -203,42 +217,27 @@ const App: React.FC = () => {
     };
   }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, cdsGroups, cdsProjects, userRole, lgaContext, ziStationFilter, searchQuery]);
 
-  const handleGenerateComprehensiveReport = () => {
-    const reportData = {
-      period: reportingPeriod,
-      sections: {
-        cwhs: filteredData.cwhs.map(d => [d.name, d.stateCode, d.lga, d.category]),
-        cim: filteredData.cim.map(d => [d.month, d.lga, d.clearedCount, d.unclearedList?.length || 0]),
-        cdr: filteredData.cdr.map(d => [d.name, d.stateCode, d.lga, d.status]),
-        saed: filteredData.saed.map(d => [d.centerName, d.lga, d.cmCount, d.fee]),
-        cdsGroups: filteredData.cdsGroups.map(d => [d.groupName, d.lga, d.meetingDay]),
-        cdsProjects: filteredData.cdsProjects.map(d => [d.cmName, d.stateCode, d.projectName, d.status])
-      }
-    };
-    generateOfficialPDF(reportData, 'COMPREHENSIVE');
-  };
-
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-950 via-slate-900 to-black">
-        <form onSubmit={handleLogin} className="bg-white p-6 sm:p-12 rounded-3xl sm:rounded-[3.5rem] shadow-2xl w-full max-w-xl space-y-6 sm:space-y-10 animate-official border-[6px] sm:border-[10px] border-emerald-950/10">
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-950 via-slate-900 to-black">
+        <form onSubmit={handleLogin} className="bg-white p-8 sm:p-12 rounded-[2.5rem] shadow-2xl w-full max-w-xl space-y-8 animate-official border-[8px] border-emerald-950/10">
           <div className="text-center">
-            <div className="w-16 h-16 sm:w-24 h-24 bg-[#004d40] rounded-2xl sm:rounded-[2rem] mx-auto mb-4 sm:mb-8 flex items-center justify-center shadow-2xl ring-4 sm:ring-8 ring-emerald-50 text-white font-serif-heading text-2xl sm:text-4xl font-black italic">NYSC</div>
-            <h1 className="text-2xl sm:text-4xl font-black text-slate-900 uppercase tracking-tighter mb-2 font-serif-heading">Command Portal</h1>
-            <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Secure Administrative Terminal</p>
+            <div className="w-16 h-16 bg-[#004d40] rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-2xl ring-4 ring-emerald-50 text-white font-serif-heading text-2xl font-black italic">NYSC</div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter mb-1 font-serif-heading">Command Portal</h1>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em]">Administrative Terminal</p>
           </div>
-          <div className="space-y-4 sm:space-y-6">
-            <select required className="w-full p-4 sm:p-6 bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-[1.5rem] font-bold text-slate-900 outline-none text-sm sm:text-base" onChange={e => {
-                const val = e.target.value;
+          <div className="space-y-5">
+            <select required className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-slate-900 outline-none text-sm" onChange={e => {
+                const val = (e.target as HTMLSelectElement).value;
                 setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
               }}>
                 <option value="">Select Command Center...</option>
                 <option value="ZI">Zonal Office (ZI)</option>
                 {LGAS.map(l => <option key={l} value={l}>{l} Station (LGI)</option>)}
             </select>
-            <input type="password" required placeholder="PIN CODE" className="w-full p-4 sm:p-6 bg-slate-50 border-2 border-slate-100 rounded-2xl sm:rounded-[1.5rem] text-center text-2xl sm:text-4xl font-black tracking-[0.3em] sm:tracking-[0.5em] outline-none" value={pin} onChange={e => setPin(e.target.value)} />
+            <input type="password" required placeholder="PIN CODE" className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl text-center text-2xl font-black tracking-[0.4em] outline-none" value={pin} onChange={e => setPin((e.target as HTMLInputElement).value)} />
           </div>
-          <button className="w-full bg-[#004d40] text-white p-4 sm:p-6 rounded-2xl sm:rounded-[1.5rem] font-black uppercase shadow-2xl hover:bg-black transition-all text-base sm:text-xl tracking-widest border-b-4 sm:border-b-8 border-emerald-950">Authenticate</button>
+          <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-sm tracking-widest border-b-4 border-emerald-950">Authenticate</button>
         </form>
       </div>
     );
@@ -247,90 +246,77 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#f1f5f9] flex flex-col font-inter pb-20 sm:pb-40">
       <nav className="bg-transparent pt-4 sm:pt-6 flex justify-center gap-1 no-print px-2 sm:px-4">
-        {[
-          { id: 'CWHS', label: 'CW&HS' },
-          { id: 'CIM', label: 'CIM' },
-          { id: 'CDR', label: 'CD&R' },
-          { id: 'CDS', label: 'CDS' },
-          { id: 'SAED', label: 'SAED' }
-        ].map(d => (
+        {(Object.keys(DIVISION_LABELS) as Division[]).map(id => (
           <button 
-            key={d.id}
-            onClick={() => setDivision(d.id as Division)}
-            className={`flex-1 sm:flex-none px-4 sm:px-12 py-3 rounded-t-2xl sm:rounded-t-[1.5rem] transition-all font-black uppercase text-[9px] sm:text-[11px] tracking-widest ${division === d.id ? 'bg-[#004d40] text-white' : 'bg-white/80 text-slate-400 hover:bg-white'}`}
+            key={id}
+            onClick={() => setDivision(id)}
+            className={`flex-1 sm:flex-none px-4 sm:px-12 py-3 rounded-t-2xl sm:rounded-t-[1.5rem] transition-all font-black uppercase text-[9px] sm:text-[11px] tracking-widest ${division === id ? 'bg-[#004d40] text-white' : 'bg-white/80 text-slate-400 hover:bg-white'}`}
           >
-            {d.label}
+            {DIVISION_LABELS[id]}
           </button>
         ))}
       </nav>
 
-      <header className="bg-[#004d40] text-white py-4 sm:py-5 px-4 sm:px-8 shadow-2xl mx-2 sm:mx-8 rounded-2xl sm:rounded-[1.5rem] flex flex-col lg:flex-row items-center justify-between no-print border-b-4 border-black/10 relative z-50 gap-4">
+      <header className="bg-[#004d40] text-white py-4 px-6 sm:px-10 shadow-2xl mx-2 sm:mx-8 rounded-2xl sm:rounded-[2rem] flex flex-col lg:flex-row items-center justify-between no-print border-b-4 border-black/10 relative z-50 gap-4">
         <div className="flex items-center gap-4 sm:gap-6 w-full lg:w-auto">
           <div className="w-10 h-10 sm:w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center border border-white/5 cursor-pointer hover:bg-white/20 transition-all shrink-0">
             <DashboardIcon />
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-2xl font-black uppercase tracking-tighter font-serif-heading leading-none">
-                NYSC ZONAL OFFICE, DAURA
-              </h1>
-              {!isOnline && (
-                <span className="bg-orange-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black animate-pulse">OFFLINE</span>
-              )}
+              <h1 className="text-lg sm:text-xl font-black uppercase tracking-tighter font-serif-heading leading-none">NYSC DAURA COMMAND</h1>
+              {!isOnline && <span className="bg-red-500 text-white text-[7px] px-2 py-0.5 rounded-full font-black animate-pulse">OFFLINE</span>}
             </div>
-            <p className="text-[7px] sm:text-[8px] font-black text-emerald-400 tracking-[0.2em] uppercase mt-1 opacity-70 italic">
-              KATSINA STATE SECRETARIAT MANAGEMENT SYSTEM
-            </p>
+            <p className="text-[7px] sm:text-[8px] font-black text-emerald-400 tracking-[0.2em] uppercase mt-1 opacity-70 italic">KATSINA STATE SECRETARIAT PORTAL</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4 w-full lg:w-auto">
           {userRole === 'ZI' ? (
             <div className="flex flex-wrap gap-2 sm:gap-4 w-full lg:w-auto justify-center">
-              <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-3 sm:px-4 overflow-hidden">
-                <select value={reportingPeriod} onChange={e => setReportingPeriod(e.target.value)} className="bg-transparent text-[8px] sm:text-[10px] font-black uppercase outline-none py-2 sm:py-3 pr-2 sm:pr-4 border-r border-white/10">
-                  <option value="WEEKLY" className="text-slate-900">WEEKLY</option>
-                  <option value="MONTHLY" className="text-slate-900">MONTHLY</option>
-                  <option value="QUARTERLY" className="text-slate-900">QUARTERLY</option>
-                </select>
-                <button onClick={handleGenerateComprehensiveReport} className="flex items-center gap-2 pl-3 sm:pl-4 text-[8px] sm:text-[10px] font-black uppercase text-emerald-300 hover:text-white transition-colors">
-                  <FileTextIcon /> <span className="hidden xs:inline">GENERATE REPORT</span>
-                </button>
-              </div>
-              <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-3 sm:px-4">
-                <select value={ziStationFilter} onChange={e => setZiStationFilter(e.target.value)} className="bg-transparent text-[8px] sm:text-[10px] font-black uppercase outline-none py-2 sm:py-3">
-                  <option value="all" className="text-slate-900">GLOBAL VIEW</option>
+              <div className="bg-white/10 border border-white/10 rounded-xl flex items-center px-4 overflow-hidden">
+                <select value={ziStationFilter} onChange={e => setZiStationFilter((e.target as HTMLSelectElement).value)} className="bg-transparent text-[8px] sm:text-[9px] font-black uppercase outline-none py-2.5 text-white">
+                  <option value="all" className="text-slate-900">GLOBAL COMMAND</option>
                   {LGAS.map(l => <option key={l} value={l} className="text-slate-900">{l}</option>)}
                 </select>
               </div>
             </div>
           ) : (
-             <div className="bg-emerald-900/40 px-4 sm:px-6 py-2 sm:py-3 rounded-xl border border-emerald-500/20 text-[8px] sm:text-[10px] font-black uppercase tracking-widest">
-               {lgaContext} STATION
+             <div className="bg-emerald-900/60 px-5 sm:px-8 py-2.5 rounded-xl border border-emerald-500/30 text-[8px] sm:text-[9px] font-black uppercase tracking-[0.1em]">
+               STATION: {lgaContext}
              </div>
           )}
-          
-          <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 bg-white/10 hover:bg-white/20 border border-white/5 rounded-xl transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest shadow-inner">
-            <DownloadIcon /> <span className="hidden md:inline">BULK EXPORT</span>
+          <button onClick={() => setIsExportModalOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/5 rounded-xl transition-all font-black uppercase text-[8px] sm:text-[9px] tracking-widest">
+            <DownloadIcon /> <span className="hidden md:inline">EXPORT</span>
           </button>
-          
-          <button onClick={handleLogout} className="p-2 sm:p-3 bg-white/5 hover:bg-red-600/40 rounded-xl border border-white/5 transition-all">
-            <LogOutIcon />
-          </button>
+          <button onClick={handleLogout} className="p-2.5 bg-red-600/20 hover:bg-red-600/40 rounded-xl border border-white/5 transition-all text-white"><LogOutIcon /></button>
         </div>
       </header>
 
-      <main className="max-w-[1500px] mx-auto w-full px-4 sm:px-8 mt-6 sm:mt-12 flex flex-col gap-6 sm:gap-8">
+      <main className="max-w-[1500px] mx-auto w-full px-4 sm:px-8 mt-6 sm:mt-10 flex flex-col gap-6 sm:gap-8">
+        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-6 no-print">
+          <div className="relative w-full sm:w-[450px]">
+            <input 
+              type="text" 
+              placeholder="SEARCH REGISTRY..." 
+              className="bg-slate-50 p-4 pr-12 rounded-2xl border border-slate-200 text-xs w-full outline-none focus:ring-4 focus:ring-emerald-50 transition-all font-bold" 
+              value={searchQuery} 
+              onChange={(e) => setSearchQuery((e.target as HTMLInputElement).value)} 
+            />
+            <div className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 scale-110"><SearchIcon /></div>
+          </div>
+        </div>
+
         <div className="flex flex-col lg:flex-row gap-6 sm:gap-12">
            {!isDbLoaded ? (
-             <div className="w-full flex flex-col items-center justify-center py-20 sm:py-40 gap-4 text-slate-300">
-               <div className="w-10 h-10 sm:w-12 h-12 border-4 border-slate-100 border-t-[#004d40] rounded-full animate-spin"></div>
-               <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Initialising Secure Link...</p>
+             <div className="w-full flex flex-col items-center justify-center py-20 gap-4">
+                <div className="w-10 h-10 border-4 border-slate-100 border-t-[#004d40] rounded-full animate-spin"></div>
+                <p className="text-slate-300 font-black uppercase tracking-[0.4em] text-[9px]">Synchronizing Secure Registry...</p>
              </div>
            ) : (
              <>
                {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} lga={lgaContext!} db={dbRef.current} />}
-               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} cdrCases={cdrEntries} userRole={userRole} />}
+               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} userRole={userRole} stationDispositions={stationDispositions} />}
                {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
                {division === 'CDS' && <CDSModule groups={filteredData.cdsGroups} projects={filteredData.cdsProjects} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
                {division === 'SAED' && <SAEDModule entries={filteredData.saed} lga={lgaContext!} db={dbRef.current} />}
@@ -340,35 +326,15 @@ const App: React.FC = () => {
       </main>
 
       {isExportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 sm:p-6" onClick={() => setIsExportModalOpen(false)}>
-          <div className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[3.5rem] w-full max-w-xl shadow-2xl animate-official max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-             <h2 className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-[#004d40] mb-6 sm:mb-8 text-center sm:text-left">Registry Extraction Terminal</h2>
-             <div className="space-y-3 sm:space-y-4">
-               {[
-                 { id: 'CWHS', label: 'CW&HS Health Registry', data: cwhsEntries, headers: ['Name', 'Code', 'LGA', 'Category'], extract: (d: any) => [d.name, d.stateCode, d.lga, d.category] },
-                 { id: 'CIM', label: 'CIM Audit Records', data: cimEntries, headers: ['Month', 'LGA', 'Cleared', 'Defaulters'], extract: (d: any) => [d.month, d.lga, d.clearedCount, d.unclearedList?.length || 0] },
-                 { id: 'CDR', label: 'CD&R Misconduct Logs', data: cdrEntries, headers: ['Name', 'Code', 'PPA', 'Status'], extract: (d: any) => [d.name, d.stateCode, d.ppa, d.status] },
-                 { id: 'CDS_GROUPS', label: 'CDS Group Registry', data: cdsGroups, headers: ['Group Name', 'LGA', 'Meeting Day'], extract: (d: any) => [d.groupName, d.lga, d.meetingDay] },
-                 { id: 'CDS_PROJECTS', label: 'CDS Personal Projects', data: cdsProjects, headers: ['CM Name', 'Code', 'Project Name', 'Status'], extract: (d: any) => [d.cmName, d.stateCode, d.projectName, d.status] },
-                 { id: 'SAED', label: 'SAED Center Hubs', data: saedEntries, headers: ['Center', 'LGA', 'Enrollment', 'Fee'], extract: (d: any) => [d.centerName, d.lga, d.cmCount, d.fee] }
-               ].map(m => (
-                 <div key={m.id} className="w-full p-4 sm:p-6 bg-slate-50 rounded-2xl border border-transparent flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <span className="font-black uppercase tracking-widest text-[10px] sm:text-sm text-center sm:text-left">{m.label}</span>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => downloadCSV(m.data, m.id, m.id)}
-                        className="p-3 bg-emerald-100 text-emerald-700 rounded-xl hover:bg-emerald-200 transition-colors flex items-center gap-2 text-[10px] font-black uppercase"
-                      >
-                        <DownloadIcon /> CSV
-                      </button>
-                      <button 
-                        onClick={() => generateOfficialPDF({ title: m.label, headers: m.headers, rows: m.data.map(m.extract) }, 'LEDGER')}
-                        className="p-3 bg-[#004d40] text-white rounded-xl hover:bg-black transition-colors flex items-center gap-2 text-[10px] font-black uppercase"
-                      >
-                        <FileTextIcon /> PDF
-                      </button>
-                    </div>
-                 </div>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-6" onClick={() => setIsExportModalOpen(false)}>
+          <div className="bg-white p-12 rounded-[3.5rem] w-full max-w-2xl shadow-2xl animate-official" onClick={e => e.stopPropagation()}>
+             <h2 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-12 text-center font-serif-heading">Administrative Export Hub</h2>
+             <div className="grid gap-6">
+               {(Object.keys(DIVISION_LABELS) as Division[]).map(id => (
+                  <div key={id} className="p-6 bg-slate-50 rounded-[2rem] flex items-center justify-between gap-6">
+                      <span className="font-black uppercase tracking-widest text-xs text-slate-600">{DIVISION_LABELS[id]} Data</span>
+                      <button onClick={() => downloadCSV(filteredData[id as keyof typeof filteredData] || [], id, id)} className="px-8 py-3 bg-[#004d40] text-white rounded-xl hover:bg-black transition-all flex items-center gap-3 text-[10px] font-black uppercase shadow-xl"><DownloadIcon /> Export CSV</button>
+                  </div>
                ))}
              </div>
           </div>
@@ -379,71 +345,56 @@ const App: React.FC = () => {
 };
 
 /* --- CWHS Module --- */
-const CWHSModule = ({ entries, lga, db }: any) => {
-  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
+const CWHSModule = ({ entries, db, lga }: { entries: CorpsMemberEntry[], db: any, lga: DauraLga }) => {
+  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.ABSCONDED, details: '' });
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const submissionData = { ...formData, lga: lga || 'Daura' };
-    if (formData.category !== ReportCategory.DECEASED) submissionData.dateOfDeath = '';
-    await addData(db, "nysc_reports", submissionData);
-    setFormData({ name: '', stateCode: '', category: ReportCategory.SICK, details: '', dateOfDeath: '' });
+    await addData(db, "nysc_reports", { ...formData, lga: lga || 'Daura' });
+    setFormData({ name: '', stateCode: '', category: ReportCategory.ABSCONDED, details: '' });
   };
 
   return (
     <>
-      <div className="w-full lg:w-[350px] no-print shrink-0">
-        <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
-          <h3 className="font-black uppercase text-[9px] sm:text-[10px] mb-8 sm:mb-12 pb-4 border-b border-slate-50 text-slate-400 tracking-widest text-center lg:text-left">Official Entry Form</h3>
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-            <input required placeholder="FULL NAME" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase placeholder:text-slate-300 outline-none focus:ring-4 focus:ring-emerald-50 transition-all border border-slate-100 text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase placeholder:text-slate-300 outline-none focus:ring-4 focus:ring-emerald-50 transition-all border border-slate-100 text-sm" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <div className="space-y-2 px-1">
-              <label className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Record Category</label>
-              <select className="w-full p-4 sm:p-5 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 outline-none appearance-none cursor-pointer text-sm" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as any})}>
-                {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            {formData.category === ReportCategory.DECEASED && (
-              <div className="space-y-2 px-1 animate-official">
-                <label className="text-[8px] font-black uppercase text-red-600 tracking-widest">Date of Death</label>
-                <input type="date" required className="w-full p-4 sm:p-5 bg-red-50/30 rounded-2xl font-bold border border-red-100 outline-none focus:ring-4 focus:ring-red-100 transition-all text-sm" value={formData.dateOfDeath} onChange={e => setFormData({...formData, dateOfDeath: e.target.value})} />
-              </div>
-            )}
-            <textarea placeholder="CASE NARRATIVE..." className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-medium placeholder:text-slate-300 outline-none h-24 sm:h-32 transition-all border border-slate-100 text-sm" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
-            <button className="w-full bg-[#004d40] text-white p-5 sm:p-7 rounded-[1.2rem] sm:rounded-[1.5rem] font-black uppercase shadow-2xl hover:bg-black transition-all text-[10px] sm:text-xs tracking-[0.2em] border-b-4 sm:border-b-8 border-emerald-950">Submit to Registry</button>
+      <div className="w-full lg:w-[340px] no-print shrink-0">
+        <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
+          <h3 className="font-black uppercase text-[8px] mb-6 pb-2 border-b-2 border-emerald-50 text-slate-400 tracking-widest text-center">New CW&HS Incident</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
+            <select className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-[10px]" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ReportCategory})}>
+              {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <textarea placeholder="ADDITIONAL CASE DETAILS..." className="w-full p-4 bg-slate-50 rounded-xl font-medium border h-24 text-xs" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log Official Case</button>
           </form>
         </div>
       </div>
-      <div className="flex-1 space-y-6 sm:space-y-8">
-        {entries.map((e: any) => (
-          <div key={e.id} className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[3.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
-            <div className="absolute top-6 sm:top-12 right-6 sm:right-12 flex gap-4 sm:gap-6 opacity-40 group-hover:opacity-100 transition-opacity no-print">
-               <button className="hover:text-emerald-700" onClick={() => generateOfficialPDF(e, 'SINGLE_CWHS')} title="Download PDF"><DownloadIcon /></button>
-               <input type="checkbox" className="w-5 h-5 sm:w-6 h-6 rounded-lg accent-[#004d40]" />
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 content-start">
+        {entries.map(e => (
+          <div key={e.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
+            <div className="absolute top-8 right-8 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+              <button onClick={() => generateOfficialPDF(e, 'SINGLE_CWHS')} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg"><DownloadIcon /></button>
+              <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="p-2 text-red-400 bg-red-50 rounded-lg"><TrashIcon /></button>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between items-start mb-4 sm:mb-6 gap-4">
-              <div>
-                <h4 className="text-2xl sm:text-4xl font-black uppercase font-serif-heading tracking-tighter text-slate-800 leading-none mb-1">{e.name}</h4>
-                <p className="text-sm sm:text-base font-black text-emerald-800 uppercase tracking-[0.1em] sm:tracking-[0.2em]">{e.stateCode}</p>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`p-2 rounded-lg ${e.category === ReportCategory.DECEASED ? 'bg-black text-white' : 'bg-red-50 text-red-600'}`}>
+                {e.category === ReportCategory.ABSCONDED && <AbscondedIcon />}
+                {e.category === ReportCategory.SICK && <SickIcon />}
+                {e.category === ReportCategory.KIDNAPPED && <KidnappedIcon />}
+                {e.category === ReportCategory.MISSING && <MissingIcon />}
+                {e.category === ReportCategory.DECEASED && <DeceasedIcon />}
               </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{e.category}</span>
             </div>
-            <div className="flex flex-wrap gap-2 mb-6 sm:mb-8">
-               <span className={`px-4 sm:px-5 py-2 text-[8px] sm:text-[9px] font-black uppercase rounded-full border ${e.category === ReportCategory.DECEASED ? 'bg-red-900 text-white border-red-950' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>{e.category}</span>
-               <span className="px-4 sm:px-5 py-2 text-[8px] sm:text-[9px] font-black uppercase rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{e.lga}</span>
+            <h4 className="text-xl font-black uppercase text-slate-800 leading-none mb-1 font-serif-heading">{e.name}</h4>
+            <p className="text-xs font-black text-emerald-800 uppercase mb-6">{e.stateCode}</p>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
+               <p className="text-[9px] font-medium text-slate-600 leading-relaxed line-clamp-3 italic">"{e.details || 'No specific details provided in initial log.'}"</p>
             </div>
-            <div className="p-4 border-l-4 border-slate-100 italic text-slate-400 font-serif-heading text-lg sm:text-xl mb-8 sm:mb-12 leading-snug">"{e.details || 'No narrative provided.'}"</div>
-            <div className="flex justify-end gap-2 sm:gap-3 pt-4 sm:pt-6 border-t border-slate-50 no-print">
-               <button 
-                className="w-10 h-10 sm:w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-emerald-100 hover:scale-110 transition-all" 
-                onClick={() => {
-                  window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA REPORT: ${e.name} (${e.stateCode}) - ${e.category}. Details: ${e.details}`)}`);
-                }}
-               >
-                 <WhatsAppIcon />
-               </button>
-               <button onClick={() => generateOfficialPDF(e, 'SINGLE_CWHS')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200 hover:scale-110 transition-all"><FileTextIcon /></button>
-               <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="w-10 h-10 sm:w-12 h-12 bg-red-50 text-red-500 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-red-100 hover:scale-110 transition-all"><TrashIcon /></button>
+            <div className="flex justify-between items-center border-t pt-6">
+               <span className="text-[8px] font-black text-slate-300 uppercase">{e.lga} Unit</span>
+               <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`CW&HS Report: ${e.name} (${e.stateCode}) is reported as ${e.category} in ${e.lga}. Details: ${e.details}`)}`)} className="text-emerald-500"><WhatsAppIcon /></button>
             </div>
           </div>
         ))}
@@ -453,125 +404,399 @@ const CWHSModule = ({ entries, lga, db }: any) => {
 };
 
 /* --- CIM Module --- */
-const CIMModule = ({ entries, db, lga, cdrCases, userRole }: any) => {
+const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entries: CIMClearance[], db: any, lga: DauraLga, userRole: UserRole | null, stationDispositions: StationDisposition[] }) => {
   const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
-  const [batchInput, setBatchInput] = useState({ batch: '', males: 0, females: 0 });
-  const [tempBatchList, setTempBatchList] = useState<CIMBatchDisposition[]>([]);
   const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string}[]>([]);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const currentStationDisp = stationDispositions.find(d => d.lga === lga);
+  const [tempBatches, setTempBatches] = useState<CIMBatchDisposition[]>([]);
+  const [newBatch, setNewBatch] = useState({ batch: '', males: 0, females: 0 });
+
+  useEffect(() => {
+    if (currentStationDisp?.batches) {
+      setTempBatches(currentStationDisp.batches);
+    } else {
+      setTempBatches([]);
+    }
+  }, [currentStationDisp]);
+
+  const abscondmentRisks = useMemo(() => {
+    const counts: Record<string, { name: string, code: string, count: number, lga: string }> = {};
+    entries.forEach((entry: any) => {
+      entry.unclearedList?.forEach((cm: any) => {
+        if (!counts[cm.code]) counts[cm.code] = { name: cm.name, code: cm.code, count: 0, lga: entry.lga };
+        counts[cm.code].count += 1;
+      });
+    });
+    return Object.values(counts)
+      .filter((item: any) => item.count >= 2)
+      .map((item: any) => {
+        const threshold = 3;
+        const daysRemaining = Math.max(0, (threshold - item.count) * 30);
+        return { ...item, daysRemaining };
+      })
+      .sort((a: any, b: any) => a.daysRemaining - b.daysRemaining);
+  }, [entries]);
+
+  // Aggregate zone-wide batch data for ZI
+  const zoneBatchSummary = useMemo(() => {
+    const summary: Record<string, { males: number, females: number }> = {};
+    stationDispositions.forEach(disp => {
+      disp.batches?.forEach(b => {
+        if (!summary[b.batch]) summary[b.batch] = { males: 0, females: 0 };
+        summary[b.batch].males += b.males;
+        summary[b.batch].females += b.females;
+      });
+    });
+    return Object.entries(summary).map(([batch, counts]) => ({ batch, ...counts }));
+  }, [stationDispositions]);
+
+  // Total defaulters per LGA
+  const defaulterCounts = useMemo(() => {
+    const lgaTotals: Record<string, number> = {};
+    // Extract unique defaulters across all audits per LGA
+    entries.forEach(audit => {
+      if (!lgaTotals[audit.lga]) lgaTotals[audit.lga] = 0;
+      // We count unique codes per month audit for that LGA
+      lgaTotals[audit.lga] += (audit.unclearedList?.length || 0);
+    });
+    return lgaTotals;
+  }, [entries]);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    const total = Number(formData.maleCount) + Number(formData.femaleCount);
-    const data = { ...formData, totalCMs: total, lga: lga || 'Daura', unclearedList: tempUnclearedList, disposition: tempBatchList };
+    const data = { ...formData, totalCMs: Number(formData.maleCount) + Number(formData.femaleCount), lga: lga || 'Daura', unclearedList: tempUnclearedList.map(u => ({...u, logs: []})), dateAdded: new Date().toISOString() };
     await addData(db, "cim_clearance", data);
     setFormData({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
     setTempUnclearedList([]);
-    setTempBatchList([]);
   };
 
-  const allDefaulters = useMemo(() => {
-    return entries.reduce((acc: any[], entry: any) => {
-      const list = (entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month }));
-      return [...acc, ...list];
-    }, []);
-  }, [entries]);
+  const handleSaveStationDisposition = async () => {
+    const totalMales = tempBatches.reduce((acc, b) => acc + b.males, 0);
+    const totalFemales = tempBatches.reduce((acc, b) => acc + b.females, 0);
+    try {
+      if (currentStationDisp) {
+        await updateData(db, "station_disposition", currentStationDisp.id, { batches: tempBatches, totalMales, totalFemales, lastUpdated: new Date().toISOString() });
+      } else {
+        await addData(db, "station_disposition", { lga, batches: tempBatches, totalMales, totalFemales, lastUpdated: new Date().toISOString() });
+      }
+      window.alert("Station population breakdown saved successfully.");
+    } catch (err) { window.alert("Failed to save disposition."); }
+  };
+
+  const handleIssueQuery = async (cm: any) => {
+    setIsGenerating(true);
+    try {
+      const queryText = await generateDisciplinaryQuery(cm.name, cm.code, "CIM AUDIT", `CHRONIC BIOMETRIC DEFAULT`);
+      await addData(db, "cdr_cases", {
+        name: cm.name,
+        stateCode: cm.code,
+        lga: cm.lga || lga,
+        ppa: "CIM BIOMETRIC AUDIT FLAG",
+        misconduct: `CHRONIC BIOMETRIC DEFAULT: Logged during ${cm.month} audit. Query Issued.`,
+        dateOfInfraction: new Date().toISOString().split('T')[0],
+        status: 'Pending' as CDRStatus
+      });
+      const parentAudit = entries.find(e => e.id === cm.parentId);
+      if (parentAudit) {
+        const newLog: CIMDefaulterLog = {
+          action: 'Formal AI Query Issued',
+          timestamp: new Date().toISOString(),
+          role: userRole || 'Unknown'
+        };
+        const updatedUnclearedList = parentAudit.unclearedList.map(u => {
+          if (u.code === cm.code) return { ...u, logs: [...(u.logs || []), newLog] };
+          return u;
+        });
+        await updateData(db, "cim_clearance", cm.parentId, { unclearedList: updatedUnclearedList });
+      }
+      window.alert(`Query generated and action logged for ${cm.name}. Case escalated to CD&R.`);
+    } catch (err) { console.error(err); window.alert("Failed to complete administrative action."); } finally { setIsGenerating(false); }
+  };
+
+  const handlePushToCDR = async (cm: any) => {
+    try {
+      await addData(db, "cdr_cases", {
+        name: cm.name,
+        stateCode: cm.code,
+        lga: cm.lga || lga,
+        ppa: "AUTO-FORWARDED (CIM SURVEILLANCE)",
+        misconduct: `CHRONIC BIOMETRIC DEFAULT: Failed biometric clearance for ${cm.count} cycles.`,
+        dateOfInfraction: new Date().toISOString().split('T')[0],
+        status: 'Pending' as CDRStatus
+      });
+      window.alert(`Personnel ${cm.code} has been pushed to CD&R.`);
+    } catch (err) { window.alert("Action failed."); }
+  };
 
   return (
     <>
-      <div className="w-full lg:w-[350px] no-print shrink-0">
-        <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-xl border border-slate-100 lg:sticky lg:top-40 max-h-[85vh] overflow-y-auto">
-          <h3 className="font-black uppercase text-[9px] sm:text-[10px] mb-8 pb-4 border-b border-slate-50 text-slate-400 tracking-widest text-center lg:text-left">CIM Audit Entry</h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <input required placeholder="AUDIT MONTH" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 text-sm" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
-            
-            <div className="border-t pt-4">
-              <h4 className="text-[8px] font-black uppercase text-emerald-800 mb-2 ml-2">Batch Disposition</h4>
-              <div className="space-y-2 bg-slate-50 p-3 rounded-2xl">
-                <input placeholder="BATCH (e.g. 2025 BATCH A)" className="w-full p-3 bg-white rounded-xl text-[10px] font-bold" value={batchInput.batch} onChange={e => setBatchInput({...batchInput, batch: e.target.value.toUpperCase()})} />
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="number" placeholder="MALES" className="w-full p-3 bg-white rounded-xl text-[10px] font-bold" value={batchInput.males} onChange={e => setBatchInput({...batchInput, males: parseInt(e.target.value) || 0})} />
-                  <input type="number" placeholder="FEMALES" className="w-full p-3 bg-white rounded-xl text-[10px] font-bold" value={batchInput.females} onChange={e => setBatchInput({...batchInput, females: parseInt(e.target.value) || 0})} />
-                </div>
-                <button type="button" onClick={() => { if(batchInput.batch) { setTempBatchList([...tempBatchList, {...batchInput}]); setBatchInput({batch:'',males:0,females:0}); } }} className="w-full p-2 bg-emerald-100 text-emerald-700 rounded-xl text-[8px] font-black uppercase hover:bg-emerald-200">Add Batch ({tempBatchList.length})</button>
+      <div className="w-full lg:w-[380px] no-print shrink-0 space-y-6">
+        {userRole === 'LGI' && (
+          <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100">
+            <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">Batch-wise Population</h3>
+            <div className="space-y-4">
+              <div className="space-y-2 max-h-[250px] overflow-auto custom-scrollbar pr-1">
+                {tempBatches.map((b, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 rounded-xl border flex justify-between items-center">
+                    <div><p className="text-[10px] font-black text-slate-800 uppercase">{b.batch}</p><p className="text-[8px] text-slate-400 font-bold uppercase">M: {b.males} | F: {b.females}</p></div>
+                    <button onClick={() => setTempBatches(tempBatches.filter((_, i) => i !== idx))} className="text-red-400"><TrashIcon /></button>
+                  </div>
+                ))}
               </div>
+              <div className="bg-slate-100 p-4 rounded-2xl space-y-3">
+                 <input placeholder="BATCH NAME" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold uppercase outline-none border" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
+                 <div className="grid grid-cols-2 gap-2">
+                    <input type="number" placeholder="MALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold outline-none border" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="FEMALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold outline-none border" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
+                 </div>
+                 <button onClick={() => { if(newBatch.batch) { setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'', males:0, females:0}); } }} className="w-full py-2 bg-[#004d40] text-white rounded-lg text-[8px] font-black uppercase">Add Batch</button>
+              </div>
+              <button onClick={handleSaveStationDisposition} className="w-full bg-emerald-700 text-white p-4 rounded-xl font-black uppercase text-[9px] shadow-lg">Save Station Registry</button>
             </div>
+          </div>
+        )}
 
-            <div className="grid grid-cols-2 gap-3 mt-4">
-               <div><label className="text-[7px] font-black uppercase text-slate-400 ml-2">Total Males</label><input type="number" className="w-full p-3 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: parseInt(e.target.value) || 0})} /></div>
-               <div><label className="text-[7px] font-black uppercase text-slate-400 ml-2">Total Females</label><input type="number" className="w-full p-3 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: parseInt(e.target.value) || 0})} /></div>
+        <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
+          <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">New Monthly Audit</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <input required placeholder="AUDIT MONTH" className="w-full p-3 bg-slate-50 rounded-lg font-bold uppercase border outline-none text-xs" value={formData.month} onChange={e => setFormData({...formData, month: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <div className="grid grid-cols-2 gap-2">
+               <div><label className="text-[7px] font-black text-slate-400 ml-1">Males Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
+               <div><label className="text-[7px] font-black text-slate-400 ml-1">Females Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
             </div>
-            <div><label className="text-[7px] font-black uppercase text-slate-400 ml-2">Cleared Count</label><input type="number" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={formData.clearedCount} onChange={e => setFormData({...formData, clearedCount: parseInt(e.target.value) || 0})} /></div>
-            
             <div className="border-t pt-4">
-               <h4 className="text-[8px] font-black uppercase text-red-800 mb-3 ml-2">Add Defaulter</h4>
+               <h4 className="text-[7px] font-black uppercase text-red-800 mb-2 ml-1">Log Defaulter</h4>
                <div className="space-y-2">
-                  <input placeholder="MEMBER NAME" className="w-full p-3 bg-slate-50 rounded-xl text-[10px] font-bold" value={unclearedInput.name} onChange={e => setUnclearedInput({...unclearedInput, name: e.target.value.toUpperCase()})} />
-                  <input placeholder="STATE CODE" className="w-full p-3 bg-slate-50 rounded-xl text-[10px] font-bold" value={unclearedInput.code} onChange={e => setUnclearedInput({...unclearedInput, code: e.target.value.toUpperCase()})} />
-                  <textarea placeholder="REASON" className="w-full p-3 bg-slate-50 rounded-xl text-[10px] h-16" value={unclearedInput.reason} onChange={e => setUnclearedInput({...unclearedInput, reason: e.target.value})} />
-                  <button type="button" onClick={() => { if(unclearedInput.name) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-slate-100 rounded-xl text-[8px] font-black uppercase">Add to List ({tempUnclearedList.length})</button>
+                  <input placeholder="CM NAME" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.name} onChange={e => setUnclearedInput({...unclearedInput, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
+                  <input placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.code} onChange={e => setUnclearedInput({...unclearedInput, code: (e.target as HTMLInputElement).value.toUpperCase()})} />
+                  <button type="button" onClick={() => { if(unclearedInput.code) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput, reason: 'Manual audit flag'}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-slate-100 rounded-lg text-[7px] font-black uppercase">Add Defaulter ({tempUnclearedList.length})</button>
                </div>
             </div>
-
-            <button className="w-full bg-[#004d40] text-white p-4 rounded-[1.2rem] font-black uppercase shadow-xl hover:bg-black transition-all text-[10px] border-b-4 border-emerald-950">Publish Audit</button>
+            <button className="w-full bg-[#004d40] text-white p-4 rounded-xl font-black uppercase text-[9px] border-b-4 border-emerald-950">Publish Final Audit</button>
           </form>
         </div>
       </div>
 
-      <div className="flex-1 space-y-6">
-        <div className="bg-[#004d40] text-white p-6 rounded-[2rem] shadow-2xl flex flex-col justify-center border-b-8 border-black/20">
-           <span className="text-[8px] font-black uppercase tracking-[0.4em] opacity-60 mb-2">Audit Aggregator</span>
-           <div className="flex flex-col md:flex-row justify-between items-end gap-6">
-             <span className="text-4xl sm:text-7xl font-black tracking-tighter leading-none">{allDefaulters.length} <span className="text-lg opacity-50 uppercase">Flagged</span></span>
-             <button onClick={() => setIsLedgerOpen(true)} className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/5 rounded-2xl transition-all font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
-               <FileTextIcon /> Defaulter Ledger
-             </button>
+      <div className="flex-1 space-y-8">
+        {/* Zonal Dashboard for ZI Role */}
+        {userRole === 'ZI' && (
+          <div className="space-y-6">
+            <div className="bg-[#004d40] p-10 rounded-[3rem] text-white shadow-2xl animate-official relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-8 opacity-10 scale-150 rotate-12"><DashboardIcon /></div>
+               <div className="flex justify-between items-start mb-10">
+                  <div>
+                    <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2 font-serif-heading">Zonal Registry Disposition</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Aggregate Station Intelligence</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-5xl font-black tracking-tighter leading-none mb-2">
+                      {stationDispositions.reduce((acc, d) => acc + d.totalMales + d.totalFemales, 0)}
+                    </p>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Grand Total Personnel</p>
+                  </div>
+               </div>
+               
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Males</p>
+                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalMales, 0)}</p>
+                  </div>
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Females</p>
+                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalFemales, 0)}</p>
+                  </div>
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Zone Defaulters</p>
+                    <p className="text-2xl font-black text-red-400">{entries.reduce((acc, e) => acc + (e.unclearedList?.length || 0), 0)}</p>
+                  </div>
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Active Batches</p>
+                    <p className="text-2xl font-black">{zoneBatchSummary.length}</p>
+                  </div>
+               </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
+               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Zone-Wide Batch Summary</h3>
+               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                 {zoneBatchSummary.map((bs, i) => (
+                   <div key={i} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col justify-between hover:shadow-lg transition-all border-l-8 border-emerald-700">
+                      <p className="text-lg font-black uppercase text-slate-800 mb-4">{bs.batch}</p>
+                      <div className="flex gap-4">
+                         <div className="flex-1 bg-white p-3 rounded-xl border text-center">
+                            <p className="text-[7px] font-black text-slate-400 uppercase">Males</p>
+                            <p className="text-lg font-black text-slate-700">{bs.males}</p>
+                         </div>
+                         <div className="flex-1 bg-white p-3 rounded-xl border text-center">
+                            <p className="text-[7px] font-black text-slate-400 uppercase">Females</p>
+                            <p className="text-lg font-black text-slate-700">{bs.females}</p>
+                         </div>
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
+                         <span className="text-[9px] font-black text-[#004d40] uppercase">Combined Strength</span>
+                         <span className="text-xl font-black text-[#004d40]">{bs.males + bs.females}</span>
+                      </div>
+                   </div>
+                 ))}
+               </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
+               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Station-Specific Breakdowns</h3>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 {LGAS.map(lgaName => {
+                   const disp = stationDispositions.find(d => d.lga === lgaName);
+                   return (
+                     <div key={lgaName} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex flex-col group relative overflow-hidden">
+                        <div className="flex justify-between items-start mb-6">
+                           <div>
+                             <h4 className="text-2xl font-black uppercase tracking-tighter text-slate-800">{lgaName} STATION</h4>
+                             <p className="text-[8px] font-black text-emerald-700 uppercase tracking-widest">Command Sub-Unit</p>
+                           </div>
+                           <div className="text-right">
+                             <p className="text-2xl font-black text-slate-800 leading-none">{(disp?.totalMales || 0) + (disp?.totalFemales || 0)}</p>
+                             <p className="text-[8px] font-black text-slate-400 uppercase">Total Personnel</p>
+                           </div>
+                        </div>
+                        
+                        <div className="space-y-3 mb-6 flex-1">
+                          {disp?.batches && disp.batches.length > 0 ? disp.batches.map((b, bi) => (
+                            <div key={bi} className="flex justify-between items-center p-3 bg-white rounded-xl shadow-sm">
+                               <span className="text-[10px] font-bold text-slate-600 uppercase">{b.batch}</span>
+                               <div className="flex gap-4">
+                                  <span className="text-[9px] font-black text-slate-400">M: {b.males}</span>
+                                  <span className="text-[9px] font-black text-slate-400">F: {b.females}</span>
+                                  <span className="text-[10px] font-black text-[#004d40] ml-2">{b.males + b.females}</span>
+                               </div>
+                            </div>
+                          )) : <p className="text-center py-4 text-[8px] font-black text-slate-300 uppercase">No batch data available.</p>}
+                        </div>
+                        
+                        <div className="pt-4 border-t-2 border-slate-200 flex justify-between items-center">
+                           <div className="flex items-center gap-2">
+                             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                             <span className="text-[10px] font-black text-red-600 uppercase">Total Clearance Defaulters:</span>
+                           </div>
+                           <span className="text-lg font-black text-red-600">{defaulterCounts[lgaName] || 0}</span>
+                        </div>
+                     </div>
+                   );
+                 })}
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Abscondment Alerts */}
+        {abscondmentRisks.length > 0 && (
+          <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] border-4 border-red-500 shadow-[0_20px_50px_-12px_rgba(220,38,38,0.2)] animate-official">
+            <div className="flex items-center gap-5 mb-8">
+              <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg">!</div>
+              <div>
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-red-600 leading-none mb-1 font-serif-heading">Abscondment Risk Surveillance</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Immediate Administrative Review Required</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+              {abscondmentRisks.map((risk: any, idx: number) => (
+                <div key={idx} className={`p-5 rounded-3xl border-2 transition-all hover:scale-105 shadow-sm ${risk.count >= 3 ? 'bg-red-900 border-red-950 text-white' : 'bg-red-50 border-red-200 text-red-900'}`}>
+                  <h4 className="font-black uppercase text-sm mb-1 leading-tight">{risk.name}</h4>
+                  <p className="text-[10px] font-bold uppercase opacity-60 mb-4">{risk.code} • {risk.lga} STATION</p>
+                  
+                  <div className="space-y-3 pt-3 border-t border-black/10">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[8px] font-black uppercase opacity-60">Missed Cycles</span>
+                      <span className="text-sm font-black">{risk.count} / 3</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[8px] font-black uppercase opacity-60">Countdown</span>
+                      <span className={`text-xs font-black px-2 py-1 rounded-lg ${risk.daysRemaining === 0 ? 'bg-white/20 animate-pulse' : 'bg-black/5'}`}>
+                        {risk.daysRemaining === 0 ? 'DUE (ABSCONDED)' : `${risk.daysRemaining} DAYS REMAINING`}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <button onClick={() => handlePushToCDR(risk)} className={`w-full mt-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all shadow-md ${risk.count >= 3 ? 'bg-white text-red-900 hover:bg-black hover:text-white' : 'bg-red-600 text-white hover:bg-black'}`}>
+                    Initiate Disciplinary Action
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-[#004d40] text-white p-8 rounded-[2.5rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-8">
+           <div className="flex items-baseline gap-4">
+             <span className="text-5xl font-black tracking-tighter leading-none">{entries.length}</span>
+             <span className="text-lg font-black uppercase opacity-40 tracking-widest font-serif-heading">Audit Periods</span>
            </div>
+           <button onClick={() => setIsLedgerOpen(true)} className="px-8 py-4 bg-white text-[#004d40] rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-3 shadow-2xl hover:bg-emerald-50 transition-all"><FileTextIcon /> Audit Action Ledger</button>
         </div>
 
         {entries.map((e: CIMClearance) => (
-          <div key={e.id} className="bg-white p-6 rounded-[2rem] shadow-sm hover:shadow-xl transition-all border border-slate-100">
-             <div className="flex justify-between items-center mb-4 pb-4 border-b">
-                <div><h4 className="text-xl font-black uppercase text-slate-800">{e.month}</h4><p className="text-[9px] font-black text-emerald-800 uppercase">{e.lga} Command</p></div>
-                <div className="flex gap-4 text-center">
-                   <div className="px-4 border-r"><span className="block text-lg font-black text-emerald-600">{e.clearedCount}</span><span className="text-[7px] font-black text-slate-400 uppercase">Cleared</span></div>
-                   <div className="px-4"><span className="block text-lg font-black text-red-600">{e.unclearedList?.length || 0}</span><span className="text-[7px] font-black text-slate-400 uppercase">Defaulters</span></div>
-                </div>
-             </div>
-             {e.disposition && e.disposition.length > 0 && (
-               <div className="mb-4">
-                 <p className="text-[7px] font-black uppercase text-slate-300 mb-2">Population Disposition</p>
-                 <div className="flex flex-wrap gap-2">
-                   {e.disposition.map((batch, idx) => (
-                     <div key={idx} className="px-3 py-2 bg-emerald-50 rounded-xl border border-emerald-100 flex flex-col">
-                       <span className="text-[8px] font-black uppercase text-emerald-900">{batch.batch}</span>
-                       <span className="text-[7px] font-bold text-emerald-700">M: {batch.males} | F: {batch.females}</span>
-                     </div>
-                   ))}
-                 </div>
-               </div>
-             )}
-             <div className="flex justify-end gap-3 no-print">
-                <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-2 text-red-300 hover:text-red-600"><TrashIcon /></button>
+          <div key={e.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm hover:shadow-lg transition-all group">
+             <div><h4 className="text-xl font-black uppercase text-slate-800 font-serif-heading tracking-tight">{e.month}</h4><p className="text-[9px] font-black text-emerald-800 tracking-[0.2em]">{e.lga} UNIT AUDIT</p></div>
+             <div className="flex gap-6 items-center">
+               <div className="text-center"><span className="block text-xl font-black text-emerald-600">{e.clearedCount}</span><span className="text-[7px] font-black text-slate-400 uppercase">CLEARED</span></div>
+               <div className="text-center"><span className="block text-xl font-black text-red-600">{e.unclearedList?.length || 0}</span><span className="text-[7px] font-black text-slate-400 uppercase">FLAGGED</span></div>
+               <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-3 text-red-100 group-hover:text-red-400 hover:scale-110 transition-all"><TrashIcon /></button>
              </div>
           </div>
         ))}
       </div>
 
       {isLedgerOpen && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-3xl z-[300] flex items-center justify-center p-6 animate-official">
-          <div className="bg-white w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-            <div className="bg-[#004d40] p-8 text-white flex justify-between items-center shrink-0">
-               <div><h3 className="text-2xl font-black uppercase">Detailed Defaulters Ledger</h3></div>
-               <button onClick={() => setIsLedgerOpen(false)} className="w-12 h-12 bg-white/10 hover:bg-red-600 rounded-full flex items-center justify-center transition-all">✕</button>
+        <div className="fixed inset-0 bg-slate-900/98 backdrop-blur-3xl z-[500] flex items-center justify-center p-4 animate-official">
+          <div className="bg-white w-full max-w-6xl rounded-[3.5rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+            <div className="bg-[#004d40] p-10 text-white flex justify-between items-center shrink-0 border-b-8 border-black/10">
+               <h3 className="text-2xl font-black uppercase font-serif-heading tracking-tighter">Comprehensive Audit Ledger</h3>
+               <button onClick={() => setIsLedgerOpen(false)} className="w-14 h-14 bg-white/10 hover:bg-red-600 rounded-2xl flex items-center justify-center transition-all text-xl font-black">✕</button>
             </div>
-            <div className="flex-1 overflow-auto p-8">
-               <table className="w-full border-separate border-spacing-y-2">
-                  <thead><tr className="text-[10px] font-black uppercase text-slate-400 text-left"><th className="px-6">Member Identity</th><th className="px-6">Station / Period</th><th className="px-6">Reason</th></tr></thead>
+            <div className="flex-1 overflow-auto p-10 custom-scrollbar">
+               <table className="w-full border-separate border-spacing-y-4">
+                  <thead><tr className="text-[10px] font-black uppercase text-slate-400 text-left"><th className="px-8 pb-4">Personnel Details</th><th className="px-8 pb-4">Unit Context</th><th className="px-8 pb-4">Administrative Action Logs</th></tr></thead>
                   <tbody>
-                    {allDefaulters.map((cm: any, idx: number) => (
-                      <tr key={idx} className="bg-slate-50 rounded-xl"><td className="px-6 py-4 font-black uppercase text-slate-800">{cm.name} <span className="text-slate-400 text-[9px]">{cm.code}</span></td><td className="px-6 py-4 text-[10px] font-bold uppercase">{cm.lga} / {cm.month}</td><td className="px-6 py-4 italic text-slate-500 text-[10px]">"{cm.reason}"</td></tr>
+                    {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, parentId: entry.id }))], []).map((cm: any, idx: number) => (
+                      <tr key={idx} className="bg-slate-50 hover:bg-white rounded-3xl transition-all shadow-sm">
+                        <td className="px-8 py-8 rounded-l-[2rem]">
+                          <p className="font-black uppercase text-slate-800 text-base mb-1">{cm.name}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cm.code}</p>
+                          {cm.logs && cm.logs.length > 0 && (
+                            <div className="mt-4 space-y-2 border-t pt-3 border-slate-200">
+                               <p className="text-[8px] font-black text-slate-400 uppercase mb-2">History:</p>
+                               {cm.logs.map((log: CIMDefaulterLog, lidx: number) => (
+                                 <div key={lidx} className="flex items-center gap-3 text-[9px] font-bold text-emerald-800 bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/50">
+                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                    <span>{log.action}</span>
+                                    <span className="opacity-30">•</span>
+                                    <span className="text-slate-400 uppercase">{new Date(log.timestamp).toLocaleDateString()}</span>
+                                    <span className="opacity-30">•</span>
+                                    <span className="text-slate-400 uppercase">By {log.role}</span>
+                                 </div>
+                               ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-8 py-8">
+                          <span className="px-4 py-2 bg-emerald-50 text-emerald-800 rounded-full text-[9px] font-black uppercase border border-emerald-100">{cm.lga} / {cm.month}</span>
+                        </td>
+                        <td className="px-8 py-8 rounded-r-[2rem]">
+                           <div className="flex flex-wrap gap-3">
+                             <button 
+                               onClick={() => handleIssueQuery(cm)} 
+                               disabled={isGenerating}
+                               className="px-6 py-2.5 bg-[#004d40] text-white text-[9px] font-black uppercase rounded-xl shadow-lg hover:bg-black transition-all disabled:opacity-50"
+                             >
+                               {isGenerating ? 'Processing...' : 'Issue Formal Query'}
+                             </button>
+                             <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC CIM FLAG: Member ${cm.name} (${cm.code}) missed biometric clearance at ${cm.lga} Unit.`)}`)} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl"><WhatsAppIcon /></button>
+                           </div>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                </table>
@@ -583,174 +808,9 @@ const CIMModule = ({ entries, db, lga, cdrCases, userRole }: any) => {
   );
 };
 
-/* --- CDS Module --- */
-const CDSModule = ({ groups, projects, lga, db, userRole }: any) => {
-  const [view, setView] = useState<'GROUPS' | 'PROJECTS'>('GROUPS');
-  const [groupForm, setGroupForm] = useState({ groupName: '', meetingDay: 'Wednesday' });
-  const [projectForm, setProjectForm] = useState({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' as 'Ongoing' | 'Completed' });
-
-  const handleGroupSubmit = async (e: any) => {
-    e.preventDefault();
-    await addData(db, "cds_groups", { ...groupForm, lga: lga || 'Daura' });
-    setGroupForm({ groupName: '', meetingDay: 'Wednesday' });
-  };
-
-  const handleProjectSubmit = async (e: any) => {
-    e.preventDefault();
-    await addData(db, "cds_projects", { ...projectForm, lga: lga || 'Daura' });
-    setProjectForm({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' });
-  };
-
-  return (
-    <>
-      <div className="w-full lg:w-[350px] no-print shrink-0">
-        <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
-          <div className="flex gap-2 mb-8 p-1 bg-slate-50 rounded-xl">
-            <button onClick={() => setView('GROUPS')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all ${view === 'GROUPS' ? 'bg-[#004d40] text-white shadow-lg' : 'text-slate-400'}`}>Groups</button>
-            <button onClick={() => setView('PROJECTS')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all ${view === 'PROJECTS' ? 'bg-[#004d40] text-white shadow-lg' : 'text-slate-400'}`}>Projects</button>
-          </div>
-          
-          {view === 'GROUPS' ? (
-            <form onSubmit={handleGroupSubmit} className="space-y-4">
-              <h3 className="font-black uppercase text-[9px] text-slate-400 tracking-widest text-center">New CDS Group</h3>
-              <input required placeholder="GROUP NAME" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 text-sm" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
-              <select className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
-                <option value="Monday">Monday</option>
-                <option value="Tuesday">Tuesday</option>
-                <option value="Wednesday">Wednesday</option>
-                <option value="Thursday">Thursday</option>
-                <option value="Friday">Friday</option>
-              </select>
-              <button className="w-full bg-[#004d40] text-white p-5 rounded-[1.5rem] font-black uppercase shadow-xl hover:bg-black transition-all text-[10px] border-b-4 border-emerald-950">Add Group</button>
-            </form>
-          ) : (
-            <form onSubmit={handleProjectSubmit} className="space-y-4">
-              <h3 className="font-black uppercase text-[9px] text-slate-400 tracking-widest text-center">Personal CDS Project</h3>
-              <input required placeholder="CORPS MEMBER NAME" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 text-sm" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
-              <input required placeholder="STATE CODE" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 text-sm" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: e.target.value.toUpperCase()})} />
-              <input required placeholder="PROJECT TITLE" className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 text-sm" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
-              <textarea placeholder="PROJECT DESCRIPTION..." className="w-full p-4 bg-[#f8fafc] rounded-2xl font-medium border border-slate-100 h-24 text-sm" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: e.target.value})} />
-              <select className="w-full p-4 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={projectForm.status} onChange={e => setProjectForm({...projectForm, status: e.target.value as any})}>
-                <option value="Ongoing">Ongoing</option>
-                <option value="Completed">Completed</option>
-              </select>
-              <button className="w-full bg-[#004d40] text-white p-5 rounded-[1.5rem] font-black uppercase shadow-xl hover:bg-black transition-all text-[10px] border-b-4 border-emerald-950">Log Project</button>
-            </form>
-          )}
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {view === 'GROUPS' ? (
-            groups.map((g: CDSGroup) => (
-              <div key={g.id} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex justify-between items-center group animate-official">
-                <div>
-                  <h4 className="text-xl font-black uppercase tracking-tighter text-slate-800">{g.groupName}</h4>
-                  <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest mt-1">{g.meetingDay} Meetings</p>
-                  <span className="inline-block mt-3 px-3 py-1 bg-slate-50 text-[7px] font-black uppercase rounded-full border border-slate-100">{g.lga}</span>
-                </div>
-                <button onClick={() => deleteData(db, "cds_groups", g.id)} className="p-3 text-red-100 hover:text-red-600 transition-all opacity-0 group-hover:opacity-100"><TrashIcon /></button>
-              </div>
-            ))
-          ) : (
-            projects.map((p: CDSPersonalProject) => (
-              <div key={p.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative group animate-official">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h4 className="text-xl font-black uppercase tracking-tighter text-slate-800 leading-none">{p.cmName}</h4>
-                    <p className="text-[10px] font-black text-emerald-800 uppercase mt-1">{p.stateCode}</p>
-                  </div>
-                  <span className={`px-4 py-1 rounded-full text-[8px] font-black uppercase border ${p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>{p.status}</span>
-                </div>
-                <div className="p-4 bg-slate-50 rounded-2xl mb-4">
-                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Project Title</p>
-                  <p className="text-sm font-black text-[#004d40] uppercase leading-tight">{p.projectName}</p>
-                </div>
-                <p className="text-[10px] text-slate-500 italic line-clamp-2 mb-6">"{p.description || 'No description provided.'}"</p>
-                <div className="flex justify-between items-center border-t pt-4">
-                  <span className="text-[8px] font-black text-slate-300 uppercase">{p.lga} STATION</span>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                    <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDS PROJECT: ${p.cmName} is carrying out "${p.projectName}" in ${p.lga}. Status: ${p.status}`)}`)} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg"><WhatsAppIcon /></button>
-                    <button onClick={() => deleteData(db, "cds_projects", p.id)} className="p-2 text-red-600 bg-red-50 rounded-lg"><TrashIcon /></button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-        {(view === 'GROUPS' ? groups.length === 0 : projects.length === 0) && (
-          <div className="py-20 text-center border-4 border-dashed border-slate-200 rounded-[3rem] text-slate-300 font-black uppercase tracking-widest italic text-sm">Registry Clean</div>
-        )}
-      </div>
-    </>
-  );
-};
-
-/* --- SAED Sub-Module --- */
-const SAEDModule = ({ entries, db, lga }: any) => {
-  const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
-
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    await addData(db, "saed_centers", { ...formData, lga: lga || 'Daura' });
-    setFormData({ centerName: '', address: '', cmCount: 0, fee: 0 });
-  };
-
-  return (
-    <>
-      <div className="w-full lg:w-[350px] no-print shrink-0">
-        <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
-          <h3 className="font-black uppercase text-[9px] sm:text-[10px] mb-8 sm:mb-12 pb-4 border-b border-slate-50 text-slate-400 tracking-widest text-center lg:text-left">Register SAED Center</h3>
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-            <input required placeholder="CENTER NAME" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 outline-none text-sm" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
-            <input required placeholder="HUB ADDRESS" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 outline-none text-sm" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
-            <div className="grid grid-cols-2 gap-3 sm:gap-4">
-               <div><label className="text-[7px] sm:text-[8px] font-black uppercase text-slate-400 ml-2">Enrolled CMs</label><input type="number" className="w-full p-3 sm:p-4 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={formData.cmCount} onChange={e => setFormData({...formData, cmCount: parseInt(e.target.value) || 0})} /></div>
-               <div><label className="text-[7px] sm:text-[8px] font-black uppercase text-slate-400 ml-2">Monthly Fee (₦)</label><input type="number" className="w-full p-3 sm:p-4 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 text-sm" value={formData.fee} onChange={e => setFormData({...formData, fee: parseInt(e.target.value) || 0})} /></div>
-            </div>
-            <button className="w-full bg-[#004d40] text-white p-5 sm:p-7 rounded-[1.2rem] sm:rounded-[1.5rem] font-black uppercase shadow-2xl hover:bg-black transition-all text-[10px] sm:text-xs border-b-4 sm:border-b-8 border-emerald-950">Add Center to Hub</button>
-          </form>
-        </div>
-      </div>
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 content-start">
-        {entries.map((c: any) => (
-          <div key={c.id} className="bg-white p-8 sm:p-10 rounded-[2rem] sm:rounded-[3.5rem] shadow-sm border border-slate-100 relative group animate-official">
-             <div className="flex items-start justify-between mb-6 sm:mb-8">
-                <div className="w-12 h-12 sm:w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-700">
-                   <DashboardIcon />
-                </div>
-                <button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-2 sm:p-3 text-red-200 hover:text-red-600 transition-colors"><TrashIcon /></button>
-             </div>
-             <h4 className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-slate-800 leading-tight mb-2">{c.centerName}</h4>
-             <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase mb-6 sm:mb-8 truncate">{c.address}</p>
-             
-             <div className="flex gap-4 pt-4 sm:pt-6 border-t border-slate-50">
-                <div className="flex-1">
-                   <p className="text-[7px] sm:text-[8px] font-black uppercase text-slate-300">Enrollment</p>
-                   <p className="text-lg sm:text-xl font-black text-[#004d40]">{c.cmCount} <span className="text-[8px] sm:text-[10px] opacity-40 uppercase">Members</span></p>
-                </div>
-                <div className="flex-1">
-                   <p className="text-[7px] sm:text-[8px] font-black uppercase text-slate-300">Revenue (Hub)</p>
-                   <p className="text-lg sm:text-xl font-black text-emerald-600">₦{Number(c.fee).toLocaleString()}</p>
-                </div>
-             </div>
-             
-             <div className="absolute bottom-6 sm:bottom-10 right-6 sm:right-10">
-                <span className="px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-50 text-[7px] sm:text-[8px] font-black uppercase rounded-full border border-slate-100">{c.lga}</span>
-             </div>
-          </div>
-        ))}
-        {entries.length === 0 && <div className="col-span-full py-20 sm:py-40 text-center border-4 border-dashed border-slate-200 rounded-[2rem] sm:rounded-[3.5rem] text-slate-300 font-black uppercase tracking-widest italic text-sm">Skill Acquisition Registry Clean</div>}
-      </div>
-    </>
-  );
-};
-
-/* --- CDR Module remains unchanged except for the status restriction in handleStatusUpdate --- */
+/* --- CD&R Module --- */
 const CDRModule = ({ entries, lga, db, userRole }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
-  const [activeQuery, setActiveQuery] = useState<{ id: string, text: string } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -761,36 +821,18 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
     setFormData({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
   };
 
-  const handleGenerateQuery = async (cm: CDRCase) => {
-    setIsGenerating(true);
-    try {
-      const queryText = await generateDisciplinaryQuery(cm.name, cm.stateCode, cm.ppa, cm.misconduct);
-      setActiveQuery({ id: cm.id, text: queryText });
-      await updateData(db, "cdr_cases", cm.id, { responseContent: queryText });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const handleFileUpload = async (id: string, field: 'responseImage' | 'evidenceDocuments', files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
     try {
       if (field === 'responseImage') {
         const base64 = await fileToBase64(files[0]);
-        await updateData(db, "cdr_cases", id, { [field]: base64 });
+        await updateData(db, "cdr_cases", id, { [field]: base64, status: 'Responded' });
       } else {
         const base64Array = await Promise.all(Array.from(files).map(f => fileToBase64(f)));
         await updateData(db, "cdr_cases", id, { [field]: base64Array });
       }
-    } catch (err) {
-      console.error(err);
-      alert("Upload failed.");
-    } finally {
-      setIsUploading(false);
-    }
+    } catch (err) { window.alert("Upload failed."); } finally { setIsUploading(false); }
   };
 
   const handleStatusUpdate = async (id: string, status: CDRStatus) => {
@@ -803,170 +845,87 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
 
   return (
     <>
-      <div className="w-full lg:w-[350px] no-print shrink-0">
-        <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
-          <h3 className="font-black uppercase text-[9px] sm:text-[10px] mb-8 sm:mb-12 pb-4 border-b border-slate-50 text-slate-400 tracking-widest text-center lg:text-left">Misconduct Reporting</h3>
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-            <input required placeholder="MEMBER FULL NAME" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 outline-none text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 outline-none text-sm" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <input required placeholder="PLACE OF ASSIGNMENT" className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold uppercase border border-slate-100 outline-none text-sm" value={formData.ppa} onChange={e => setFormData({...formData, ppa: e.target.value.toUpperCase()})} />
-            <input type="date" required className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-bold border border-slate-100 outline-none text-sm" value={formData.dateOfInfraction} onChange={e => setFormData({...formData, dateOfInfraction: e.target.value})} />
-            <textarea required placeholder="SPECIFIC MISCONDUCT DETAILS..." className="w-full p-4 sm:p-6 bg-[#f8fafc] rounded-2xl font-medium border border-slate-100 h-24 sm:h-32 outline-none text-sm" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: e.target.value})} />
-            <button className="w-full bg-[#004d40] text-white p-5 sm:p-6 rounded-[1.2rem] sm:rounded-[1.5rem] font-black uppercase shadow-2xl hover:bg-black transition-all text-[10px] sm:text-xs tracking-[0.2em] border-b-4 sm:border-b-8 border-emerald-950">File Disciplinary Report</button>
+      <div className="w-full lg:w-[340px] no-print shrink-0">
+        <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
+          <h3 className="font-black uppercase text-[8px] mb-6 pb-2 border-b-2 border-emerald-50 text-slate-400 tracking-widest text-center">Log Official Misconduct</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.name} onChange={e => setFormData({...formData, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="PPA" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.ppa} onChange={e => setFormData({...formData, ppa: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 rounded-xl font-medium border h-24 text-xs" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: (e.target as HTMLTextAreaElement).value})} />
+            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log CD&R Case</button>
           </form>
         </div>
       </div>
-
-      <div className="flex-1 space-y-6 sm:space-y-8">
-        <div className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[4rem] shadow-sm border border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-6">
-           <div className="text-center sm:text-left">
-             <h3 className="text-2xl sm:text-4xl font-black uppercase font-serif-heading text-[#004d40]">Active CDR Cases</h3>
-             <p className="text-[8px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Disciplinary Surveillance</p>
-           </div>
-           <div className="flex gap-4">
-              <div className="text-center px-4 sm:px-6 py-2 sm:py-3 bg-slate-50 rounded-2xl border">
-                 <p className="text-xl sm:text-2xl font-black text-slate-800">{entries.length}</p>
-                 <p className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase">Total Cases</p>
-              </div>
-           </div>
-        </div>
-
+      <div className="flex-1 space-y-8">
         {entries.map((cm: CDRCase) => (
-          <div key={cm.id} className="bg-white p-6 sm:p-12 rounded-[2rem] sm:rounded-[3.5rem] shadow-sm hover:shadow-2xl transition-all relative border border-slate-100 group animate-official">
-             <div className="absolute top-6 sm:top-12 right-6 sm:right-12 flex items-center gap-4 sm:gap-6 no-print">
-                <span className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-[7px] sm:text-[9px] font-black uppercase border ${
-                  cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                  cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+          <div key={cm.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
+             <div className="absolute top-8 right-8 flex items-center gap-4 no-print">
+                <span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase border tracking-widest ${
+                  cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
+                  cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                   cm.status === 'Forwarded_to_ZI' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                  'bg-indigo-50 text-indigo-600 border-indigo-100'
-                }`}>
-                  {cm.status?.replace(/_/g, ' ') || 'Pending'}
-                </span>
-                <button onClick={() => deleteData(db, "cdr_cases", cm.id)} className="text-red-300 hover:text-red-500"><TrashIcon /></button>
+                  'bg-slate-900 text-white border-slate-950'
+                }`}>{cm.status?.replace(/_/g, ' ') || 'Pending'}</span>
+                <button onClick={() => deleteData(db, "cdr_cases", cm.id)} className="text-red-200 hover:text-red-600 transition-all"><TrashIcon /></button>
              </div>
-
-             <div className="mb-6 sm:mb-8 mt-6 sm:mt-0">
-                <h4 className="text-2xl sm:text-4xl font-black uppercase font-serif-heading tracking-tighter text-slate-800 leading-none mb-1">{cm.name}</h4>
-                <p className="text-base sm:text-lg font-black text-emerald-800 uppercase tracking-tighter">{cm.stateCode}</p>
-                <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 truncate">PPA: {cm.ppa}</p>
+             <div className="mb-8"><h4 className="text-xl sm:text-2xl font-black uppercase font-serif-heading tracking-tighter text-slate-800 leading-none mb-1">{cm.name}</h4><p className="text-base font-black text-emerald-800 uppercase tracking-widest">{cm.stateCode}</p></div>
+             
+             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 mb-8 shadow-inner">
+                <p className="text-[9px] font-black text-slate-400 uppercase mb-4 flex items-center gap-3"><FileTextIcon /> Incident parameters</p>
+                <p className="text-slate-600 text-sm font-medium leading-relaxed italic border-l-4 border-emerald-700 pl-4">"{cm.misconduct}"</p>
+                {cm.ppa && <p className="mt-4 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">PPA: {cm.ppa}</p>}
              </div>
-
-             <div className="p-4 sm:p-8 bg-slate-50 rounded-[1.5rem] sm:rounded-[2.5rem] border border-slate-100 mb-6 sm:mb-10">
-                <p className="text-[7px] sm:text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 sm:mb-4 flex items-center gap-2">
-                   <FileTextIcon /> Incident Report ({cm.dateOfInfraction})
-                </p>
-                <p className="text-slate-600 text-sm sm:text-base font-medium leading-relaxed italic">"{cm.misconduct}"</p>
-             </div>
-
-             {cm.responseContent && (
-               <div className="p-6 sm:p-10 bg-emerald-50/30 rounded-[1.5rem] sm:rounded-[2.5rem] border-2 border-emerald-100/50 mb-6 sm:mb-10 animate-official">
-                  <p className="text-[7px] sm:text-[9px] font-black text-emerald-800 uppercase tracking-widest mb-4 sm:mb-6 flex justify-between items-center">
-                     <span>Formal Query Data</span>
-                     <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="bg-emerald-100 px-3 py-1 rounded-lg text-emerald-700 text-[8px] font-black uppercase hover:bg-emerald-200">Download Official PDF</button>
-                  </p>
-                  <pre className="text-[10px] sm:text-xs font-official-document text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
-                     {cm.responseContent}
-                  </pre>
-               </div>
-             )}
 
              {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded') && (
-               <div className="p-6 sm:p-10 bg-blue-50/30 rounded-[1.5rem] sm:rounded-[2.5rem] border-2 border-blue-100/50 mb-6 sm:mb-10 animate-official">
-                  <p className="text-[7px] sm:text-[9px] font-black text-blue-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                     <PlusIcon /> RESPONSE UPLOAD
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+               <div className="p-8 bg-blue-50/20 rounded-[2.5rem] border border-blue-100/50 mb-8 animate-official">
+                  <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest mb-6">LGI Administrative Minute</p>
+                  <div className="space-y-6">
                     <div>
-                      <label className="text-[7px] font-black text-slate-400 uppercase block mb-2">Member Response Photo</label>
-                      <input type="file" accept="image/*" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-[7px] w-full" />
-                      {cm.responseImage && <div className="mt-2 w-12 h-12 rounded-lg bg-blue-100 border overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
+                      <label className="text-[9px] font-black text-slate-400 uppercase block mb-2">Upload CM Response (Image)</label>
+                      <input type="file" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-xs" />
+                      {cm.responseImage && <div className="mt-4 w-20 h-20 rounded-2xl border-4 border-white shadow-xl overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
                     </div>
-                    <div>
-                      <label className="text-[7px] font-black text-slate-400 uppercase block mb-2">Evidence Documents</label>
-                      <input type="file" accept="image/*" multiple onChange={(e) => handleFileUpload(cm.id, 'evidenceDocuments', e.target.files)} className="text-[7px] w-full" />
-                    </div>
-                  </div>
-                  <div className="mt-4 sm:mt-6">
-                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">LGI Administrative Minute</label>
-                    <textarea 
-                      className="w-full p-4 sm:p-6 bg-white rounded-xl sm:rounded-2xl text-xs font-medium border border-blue-100 outline-none h-20 sm:h-24"
-                      placeholder="Observation and recommendation..."
-                      defaultValue={cm.lgiMinute || ''}
-                      onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)}
-                    />
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button 
-                      onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')}
-                      className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-blue-600 text-white rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg"
-                    >
-                      Minute to ZI
-                    </button>
+                    <textarea className="w-full p-5 bg-white rounded-2xl border border-blue-50 outline-none text-xs h-24" placeholder="Enter administrative minute..." defaultValue={cm.lgiMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', (e.target as HTMLTextAreaElement).value)} />
+                    <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-black transition-all">Escalate to ZI Office</button>
                   </div>
                </div>
              )}
 
-             {userRole === 'ZI' && (cm.status === 'Forwarded_to_ZI' || cm.status === 'Minuted_to_CIM') && (
-               <div className="p-6 sm:p-10 bg-indigo-50/30 rounded-[1.5rem] sm:rounded-[2.5rem] border-2 border-indigo-100/50 mb-6 sm:mb-10 animate-official">
-                  <p className="text-[7px] sm:text-[9px] font-black text-indigo-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                     <FileTextIcon /> ZI ADMINISTRATIVE REVIEW
-                  </p>
-                  <div className="mb-4">
-                      <p className="text-[6px] sm:text-[8px] font-black text-slate-400 uppercase mb-1">LGI Minute:</p>
-                      <p className="text-[10px] sm:text-xs italic text-slate-600 line-clamp-2">"{cm.lgiMinute || 'No LGI Minute'}"</p>
-                  </div>
-                  <div>
-                    <label className="text-[7px] sm:text-[8px] font-black text-slate-400 uppercase block mb-2">ZI Administrative Instruction</label>
-                    <textarea 
-                      className="w-full p-4 sm:p-6 bg-white rounded-xl sm:rounded-2xl text-xs font-medium border border-indigo-100 outline-none h-20 sm:h-24"
-                      placeholder="Enter instruction for CIM..."
-                      defaultValue={cm.ziMinute || ''}
-                      onBlur={(e) => handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)}
-                    />
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button 
-                      onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')}
-                      className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-indigo-600 text-white rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg"
-                    >
-                      Process to CIM
-                    </button>
-                  </div>
-               </div>
-             )}
-
-             <div className="flex flex-col xs:flex-row justify-between items-center border-t border-slate-50 pt-6 sm:pt-8 no-print gap-4">
-                <div className="flex flex-wrap gap-2 w-full xs:w-auto">
-                   {userRole === 'ZI' && cm.status === 'Pending' && (
-                     <button 
-                       onClick={() => handleGenerateQuery(cm)} 
-                       disabled={isGenerating}
-                       className="flex-1 xs:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-[#004d40] text-white rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-widest disabled:opacity-50"
-                     >
-                        {isGenerating ? '...' : 'AI FORMAL QUERY'}
-                     </button>
-                   )}
-                   <select 
-                      onChange={(e) => handleStatusUpdate(cm.id, e.target.value as CDRStatus)}
-                      className="flex-1 xs:flex-none px-3 sm:px-4 py-2 sm:py-3 bg-slate-100 rounded-xl text-[8px] sm:text-[10px] font-black uppercase outline-none"
-                      value={cm.status}
-                    >
-                       <option value="Pending">Pending</option>
-                       <option value="Responded">Responded</option>
-                       <option value="Forwarded_to_ZI">ZI Desk</option>
-                       <option value="Minuted_to_CIM">CIM Desk</option>
-                       {userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed/Archive</option>}
-                    </select>
+             <div className="flex flex-col xs:flex-row justify-between items-center border-t-2 border-slate-50 pt-8 no-print gap-6">
+                <div className="flex flex-wrap gap-3 w-full xs:w-auto">
+                   <select onChange={(e) => handleStatusUpdate(cm.id, (e.target as HTMLSelectElement).value as CDRStatus)} className="flex-1 xs:flex-none px-6 py-3 bg-slate-100 rounded-xl text-[9px] font-black uppercase outline-none border shadow-inner cursor-pointer" value={cm.status}><option value="Pending">Pending</option><option value="Responded">Responded</option><option value="Forwarded_to_ZI">ZI Desk</option><option value="Minuted_to_CIM">CIM Desk</option>{userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed</option>}</select>
                 </div>
-                <div className="flex gap-2 sm:gap-3 ml-auto">
-                   <button className="w-10 h-10 sm:w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-emerald-100" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`NYSC CDR CASE: ${cm.name} (${cm.stateCode}). Status: ${cm.status}`)}`)} title="Share via WhatsApp"><WhatsAppIcon /></button>
-                   <button onClick={() => generateOfficialPDF(cm, 'CDR_QUERY')} className="w-10 h-10 sm:w-12 h-12 bg-slate-50 text-slate-700 rounded-xl sm:rounded-2xl flex items-center justify-center hover:bg-slate-200" title="Download Query PDF"><FileTextIcon /></button>
+                <div className="flex gap-4 ml-auto">
+                   <button onClick={() => generateOfficialPDF(cm, 'LEDGER')} className="w-12 h-12 bg-white text-slate-400 rounded-xl flex items-center justify-center hover:text-[#004d40] transition-all shadow-md border"><DownloadIcon /></button>
+                   <button className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center hover:scale-110 transition-all shadow-md border" onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA CD&R: Member ${cm.name} (${cm.stateCode}) status updated to ${cm.status} in ${cm.lga}.`)}`)}><WhatsAppIcon /></button>
                 </div>
              </div>
           </div>
         ))}
       </div>
     </>
+  );
+};
+
+/* --- CDS Module --- */
+const CDSModule = ({ groups, projects, lga, db, userRole }: any) => {
+  const [view, setView] = useState<'GROUPS' | 'PROJECTS'>('GROUPS');
+  const [groupForm, setGroupForm] = useState({ groupName: '', meetingDay: 'Wednesday' });
+  const [projectForm, setProjectForm] = useState({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' as 'Ongoing' | 'Completed' });
+  const handleGroupSubmit = async (e: any) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga: lga || 'Daura' }); setGroupForm({ groupName: '', meetingDay: 'Wednesday' }); };
+  const handleProjectSubmit = async (e: any) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga: lga || 'Daura' }); setProjectForm({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' }); };
+  return (
+    <><div className="w-full lg:w-[340px] no-print shrink-0"><div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40"><div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-xl shadow-inner"><button onClick={() => setView('GROUPS')} className={`flex-1 py-3 text-[9px] font-black uppercase rounded-lg transition-all ${view === 'GROUPS' ? 'bg-[#004d40] text-white shadow-lg' : 'text-slate-400'}`}>Units</button><button onClick={() => setView('PROJECTS')} className={`flex-1 py-3 text-[9px] font-black uppercase rounded-lg transition-all ${view === 'PROJECTS' ? 'bg-[#004d40] text-white shadow-lg' : 'text-slate-400'}`}>Projects</button></div>{view === 'GROUPS' ? (<form onSubmit={handleGroupSubmit} className="space-y-4"><h3 className="font-black uppercase text-[8px] text-slate-400 tracking-widest text-center">New Unit</h3><input required placeholder="UNIT NAME" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border-2 border-transparent outline-none focus:border-emerald-500/20 text-xs" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: (e.target as HTMLInputElement).value.toUpperCase()})} /><button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] tracking-widest border-b-4 border-emerald-950">Register Unit</button></form>) : (<form onSubmit={handleProjectSubmit} className="space-y-4"><h3 className="font-black uppercase text-[8px] text-slate-400 tracking-widest text-center">Individual Task</h3><input required placeholder="FULL NAME" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: (e.target as HTMLInputElement).value.toUpperCase()})} /><input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} /><button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] tracking-widest border-b-4 border-emerald-950">Log Project</button></form>)}</div></div><div className="flex-1 space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 gap-6">{view === 'GROUPS' ? groups.map((g: any) => (<div key={g.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 relative group animate-official hover:shadow-xl transition-all"><div className="absolute left-0 top-0 w-2 h-full bg-[#004d40]"></div><h4 className="text-lg font-black uppercase tracking-tighter text-slate-800 leading-tight mb-1 font-serif-heading">{g.groupName}</h4><div className="flex items-center gap-3"><span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest">{g.meetingDay} Schedule</span><span className="w-1 h-1 bg-slate-200 rounded-full"></span><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{g.lga}</span></div><button onClick={() => deleteData(db, "cds_groups", g.id)} className="absolute top-6 right-6 p-2 text-red-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 shadow-sm"><TrashIcon /></button></div>)) : projects.map((p: any) => (<div key={p.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 hover:shadow-xl transition-all relative group animate-official"><div className="flex justify-between items-start mb-6"><div><h4 className="text-xl font-black uppercase tracking-tighter text-slate-800 leading-none mb-1 font-serif-heading">{p.cmName}</h4><p className="text-xs font-black text-emerald-800 uppercase tracking-widest">{p.stateCode}</p></div><span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase border tracking-widest ${p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>{p.status}</span></div><div className="p-4 bg-slate-50 rounded-2xl mb-6 shadow-inner"><p className="text-[7px] font-black text-slate-400 uppercase mb-2">Project Classification</p><p className="text-base font-black text-[#004d40] uppercase leading-tight font-serif-heading">{p.projectName}</p></div><div className="flex justify-between items-center border-t pt-6"><span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">{p.lga} Station</span><div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all"><button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`CDS Progress: ${p.cmName} (${p.stateCode}) is executing "${p.projectName}" in ${p.lga}. Status: ${p.status}`)}`)} className="w-10 h-10 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded-xl hover:bg-emerald-100 shadow-sm transition-all"><WhatsAppIcon /></button><button onClick={() => deleteData(db, "cds_projects", p.id)} className="w-10 h-10 flex items-center justify-center text-red-400 bg-red-50 rounded-xl hover:bg-red-100 shadow-sm transition-all"><TrashIcon /></button></div></div></div>))}</div></div></>
+  );
+};
+
+/* --- SAED Sub-Module --- */
+const SAEDModule = ({ entries, db, lga }: any) => {
+  const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
+  const handleSubmit = async (e: any) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga: lga || 'Daura' }); setFormData({ centerName: '', address: '', cmCount: 0, fee: 0 }); };
+  return (
+    <><div className="w-full lg:w-[340px] no-print shrink-0"><div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40"><h3 className="font-black uppercase text-[8px] mb-6 pb-2 border-b-2 border-emerald-50 text-slate-400 tracking-widest text-center">SAED Hub Registry</h3><form onSubmit={handleSubmit} className="space-y-4"><input required placeholder="HUB NAME" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border outline-none text-xs" value={formData.centerName} onChange={e => setFormData({...formData, centerName: (e.target as HTMLInputElement).value.toUpperCase()})} /><input required placeholder="ADDRESS" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border outline-none text-xs" value={formData.address} onChange={e => setFormData({...formData, address: (e.target as HTMLInputElement).value.toUpperCase()})} /><div className="grid grid-cols-2 gap-3"><div><label className="text-[8px] font-black uppercase text-slate-400 ml-1">Census</label><input type="number" className="w-full p-4 bg-slate-50 rounded-xl font-bold border text-xs" value={formData.cmCount} onChange={e => setFormData({...formData, cmCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div><div><label className="text-[8px] font-black uppercase text-slate-400 ml-1">Fee (₦)</label><input type="number" className="w-full p-4 bg-slate-50 rounded-xl font-bold border text-xs" value={formData.fee} onChange={e => setFormData({...formData, fee: parseInt((e.target as HTMLInputElement).value) || 0})} /></div></div><button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950 mt-2">Confirm SAED Hub</button></form></div></div><div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 content-start">{entries.map((c: any) => (<div key={c.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative group animate-official hover:shadow-xl transition-all hover:-translate-y-1 overflow-hidden"><div className="absolute top-0 left-0 w-3 h-full bg-[#004d40]"></div><div className="flex items-start justify-between mb-8"><div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-700 shadow-inner border border-emerald-100"><DashboardIcon /></div><button onClick={() => deleteData(db, "saed_centers", c.id)} className="p-3 text-red-200 hover:text-red-500 transition-all hover:scale-110"><TrashIcon /></button></div><h4 className="text-lg font-black uppercase tracking-tighter text-slate-800 leading-tight mb-1 font-serif-heading">{c.centerName}</h4><p className="text-[9px] font-bold text-slate-400 uppercase mb-8 truncate tracking-widest">{c.address}</p><div className="flex gap-4 pt-6 border-t border-slate-50"><div className="flex-1"><p className="text-[8px] font-black uppercase text-slate-300 mb-1">Census</p><p className="text-xl font-black text-[#004d40]">{c.cmCount} <span className="text-[9px] opacity-30 font-bold ml-1 uppercase">CMs</span></p></div><div className="flex-1"><p className="text-[8px] font-black uppercase text-slate-300 mb-1">Revenue</p><p className="text-xl font-black text-emerald-600 tracking-tight">₦{Number(c.fee).toLocaleString()}</p></div></div><div className="absolute bottom-8 right-8"><span className="px-4 py-1 bg-slate-50 text-[8px] font-black uppercase rounded-full border border-slate-100 shadow-sm tracking-widest">{c.lga} STATION</span></div></div>))}</div></>
   );
 };
 
