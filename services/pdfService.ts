@@ -62,19 +62,19 @@ export const generateOfficialPDF = (data: any, type: string) => {
     doc.setFontSize(14); doc.setFont("helvetica", "bold");
     doc.text("DISCIPLINARY CASE RECORD", 15, 80);
     doc.setFontSize(11);
-    doc.text("PERSONNEL:", 15, 95); doc.setFont("helvetica", "normal"); doc.text(`${data.name} (${data.stateCode})`, 75, 95);
-    doc.setFont("helvetica", "bold"); doc.text("LGA/STATION:", 15, 102); doc.setFont("helvetica", "normal"); doc.text(data.lga, 75, 102);
+    doc.text("PERSONNEL:", 15, 95); doc.setFont("helvetica", "normal"); doc.text(`${data.name || 'N/A'} (${data.stateCode || 'N/A'})`, 75, 95);
+    doc.setFont("helvetica", "bold"); doc.text("LGA/STATION:", 15, 102); doc.setFont("helvetica", "normal"); doc.text(data.lga || 'N/A', 75, 102);
     doc.setFont("helvetica", "bold"); doc.text("PPA:", 15, 109); doc.setFont("helvetica", "normal"); doc.text(data.ppa || 'N/A', 75, 109);
-    doc.setFont("helvetica", "bold"); doc.text("CASE STATUS:", 15, 116); doc.setFont("helvetica", "normal"); doc.text(String(data.status).replace(/_/g, ' ').toUpperCase(), 75, 116);
+    doc.setFont("helvetica", "bold"); doc.text("CASE STATUS:", 15, 116); doc.setFont("helvetica", "normal"); doc.text(String(data.status || 'Pending').replace(/_/g, ' ').toUpperCase(), 75, 116);
     doc.setFont("helvetica", "bold"); doc.text("MISCONDUCT:", 15, 130); doc.setFont("helvetica", "italic");
     const misDetails = data.misconduct || "N/A";
     const splitMis = doc.splitTextToSize(misDetails, pageWidth - 30);
     doc.text(splitMis, 15, 137);
   } else if (type === 'CIM_AUDIT') {
     doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text(`BIOMETRIC AUDIT REPORT: ${data.month}`, 15, 80);
+    doc.text(`BIOMETRIC AUDIT REPORT: ${data.month || 'N/A'}`, 15, 80);
     doc.setFontSize(11);
-    doc.text("STATION:", 15, 90); doc.setFont("helvetica", "normal"); doc.text(data.lga, 75, 90);
+    doc.text("STATION:", 15, 90); doc.setFont("helvetica", "normal"); doc.text(data.lga || 'N/A', 75, 90);
     doc.setFont("helvetica", "bold"); doc.text("CLEARED:", 15, 97); doc.setFont("helvetica", "normal"); doc.text(String(data.clearedCount || 0), 75, 97);
     doc.setFont("helvetica", "bold"); doc.text("FLAGGED/DEFAULTERS:", 15, 104); doc.setFont("helvetica", "normal"); doc.text(String(data.unclearedList?.length || 0), 75, 104);
     
@@ -86,6 +86,33 @@ export const generateOfficialPDF = (data: any, type: string) => {
         headStyles: { fillColor: [0, 77, 64] }, styles: { fontSize: 9 }
       });
     }
+  } else if (type === 'DISCIPLINARY_QUERY') {
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Ref: NYSC/KTS/DZ/ADM/Q/${Date.now().toString().slice(-6)}`, 15, 75);
+    
+    doc.text("To:", 15, 85);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(data.name).toUpperCase(), 30, 85);
+    doc.text(String(data.code).toUpperCase(), 30, 90);
+    doc.text(`${data.lga} Zonal Command`, 30, 95);
+
+    doc.setFont("helvetica", "bold");
+    const subject = "INTERNAL MEMORANDUM: QUERY FOR BIOMETRIC CLEARANCE DEFAULT";
+    doc.text(subject, pageWidth / 2, 110, { align: "center" });
+    doc.line(30, 112, pageWidth - 30, 112);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const letterBody = data.letterText || "Formal query regarding your absence from the monthly biometric clearance exercise.";
+    const splitBody = doc.splitTextToSize(letterBody, pageWidth - 30);
+    doc.text(splitBody, 15, 125);
+
+    const signY = pageHeight - 60;
+    doc.setFont("helvetica", "bold");
+    doc.text("__________________________", 15, signY);
+    doc.text("For: Zonal Inspector", 15, signY + 7);
+    doc.text("NYSC Daura Zonal Office", 15, signY + 14);
   }
 
   const footerY = pageHeight - 15;
@@ -93,5 +120,5 @@ export const generateOfficialPDF = (data: any, type: string) => {
   doc.line(10, footerY - 5, pageWidth - 10, footerY - 5);
   doc.setTextColor(0, 0, 0); doc.setFontSize(8); doc.setFont("helvetica", "normal");
   doc.text("Email: nyscdaurazone@gmail.com", pageWidth / 2, footerY + 2, { align: "center" });
-  doc.save(`NYSC_Report_${Date.now()}.pdf`);
+  doc.save(`NYSC_Official_Document_${Date.now()}.pdf`);
 };

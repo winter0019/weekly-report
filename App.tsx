@@ -405,7 +405,9 @@ const CWHSModule = ({ entries, db, lga }: { entries: CorpsMemberEntry[], db: any
 
 /* --- CIM Module --- */
 const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entries: CIMClearance[], db: any, lga: DauraLga, userRole: UserRole | null, stationDispositions: StationDisposition[] }) => {
-  const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0 });
+  const [formData, setFormData] = useState({ month: '' });
+  const [clearedBatches, setClearedBatches] = useState<CIMBatchDisposition[]>([]);
+  const [newClearedBatch, setNewClearedBatch] = useState({ batch: '', males: 0, females: 0 });
   const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string}[]>([]);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
@@ -424,31 +426,52 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
   }, [currentStationDisp]);
 
   const abscondmentRisks = useMemo(() => {
-    const counts: Record<string, { name: string, code: string, count: number, lga: string }> = {};
-    entries.forEach((entry: any) => {
+    const sortedEntries = [...entries].sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
+    const personMisses: Record<string, { 
+      name: string, 
+      code: string, 
+      count: number, 
+      lga: string, 
+      missedMonths: { month: string, date: string }[],
+      consecutiveCount: number,
+      maxConsecutive: number
+    }> = {};
+
+    sortedEntries.forEach((entry: any) => {
       entry.unclearedList?.forEach((cm: any) => {
-        if (!counts[cm.code]) counts[cm.code] = { name: cm.name, code: cm.code, count: 0, lga: entry.lga };
-        counts[cm.code].count += 1;
+        if (!personMisses[cm.code]) {
+          personMisses[cm.code] = { 
+            name: cm.name, code: cm.code, count: 0, lga: entry.lga, missedMonths: [],
+            consecutiveCount: 0, maxConsecutive: 0
+          };
+        }
+        personMisses[cm.code].count += 1;
+        personMisses[cm.code].missedMonths.push({ month: entry.month, date: entry.dateAdded });
+        personMisses[cm.code].consecutiveCount += 1;
+        if (personMisses[cm.code].consecutiveCount > personMisses[cm.code].maxConsecutive) {
+          personMisses[cm.code].maxConsecutive = personMisses[cm.code].consecutiveCount;
+        }
+      });
+      const currentUncleared = new Set(entry.unclearedList?.map((u: any) => u.code) || []);
+      Object.keys(personMisses).forEach(code => {
+        if (!currentUncleared.has(code)) personMisses[code].consecutiveCount = 0;
       });
     });
-    return Object.values(counts)
+
+    return Object.values(personMisses)
       .filter((item: any) => item.count >= 2)
-      .map((item: any) => {
-        const threshold = 3;
-        const daysRemaining = Math.max(0, (threshold - item.count) * 30);
-        return { ...item, daysRemaining };
-      })
-      .sort((a: any, b: any) => a.daysRemaining - b.daysRemaining);
+      .map((item: any) => ({ ...item, daysRemaining: Math.max(0, (3 - item.maxConsecutive) * 30) }))
+      .sort((a, b) => b.maxConsecutive - a.maxConsecutive);
   }, [entries]);
 
-  // Aggregate zone-wide statistics for ZI
   const zonalClearanceStats = useMemo(() => {
-    const stats: Record<string, { cleared: number, flagged: number }> = {};
-    LGAS.forEach(l => stats[l] = { cleared: 0, flagged: 0 });
-    
+    const stats: Record<string, { cleared: number, flagged: number, maleCleared: number, femaleCleared: number }> = {};
+    LGAS.forEach(l => stats[l] = { cleared: 0, flagged: 0, maleCleared: 0, femaleCleared: 0 });
     entries.forEach(audit => {
       if (stats[audit.lga]) {
         stats[audit.lga].cleared += (audit.clearedCount || 0);
+        stats[audit.lga].maleCleared += (audit.maleCount || 0);
+        stats[audit.lga].femaleCleared += (audit.femaleCount || 0);
         stats[audit.lga].flagged += (audit.unclearedList?.length || 0);
       }
     });
@@ -469,18 +492,45 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    const totalC = Number(formData.maleCount) + Number(formData.femaleCount);
+    const totalM = clearedBatches.reduce((acc, b) => acc + b.males, 0);
+    const totalF = clearedBatches.reduce((acc, b) => acc + b.females, 0);
+    const totalCleared = totalM + totalF;
+    const unclearedCount = tempUnclearedList.length;
+
     const data = { 
-      ...formData, 
-      clearedCount: totalC,
-      totalCMs: totalC + tempUnclearedList.length, 
+      month: formData.month,
+      maleCount: totalM,
+      femaleCount: totalF,
+      clearedCount: totalCleared,
+      totalCMs: totalCleared + unclearedCount,
       lga: lga || 'Daura', 
+      batchClearance: clearedBatches,
       unclearedList: tempUnclearedList.map(u => ({...u, logs: []})), 
       dateAdded: new Date().toISOString() 
     };
+
     await addData(db, "cim_clearance", data);
-    setFormData({ month: '', maleCount: 0, femaleCount: 0 });
+
+    // Automatic Escalation Check for Abscondment
+    for (const defaulter of tempUnclearedList) {
+      const history = abscondmentRisks.find(r => r.code === defaulter.code);
+      if (history && history.maxConsecutive >= 2) { 
+        await addData(db, "cdr_cases", {
+          name: defaulter.name,
+          stateCode: defaulter.code,
+          lga: lga,
+          ppa: "AUTO-SURVEILLANCE FLAG",
+          misconduct: `BIOMETRIC CLEARANCE DEFAULT (${formData.month}): missing clearance`,
+          dateOfInfraction: new Date().toISOString().split('T')[0],
+          status: 'Pending' as CDRStatus
+        });
+      }
+    }
+
+    setFormData({ month: '' });
+    setClearedBatches([]);
     setTempUnclearedList([]);
+    window.alert("Audit recorded and surveillance processed.");
   };
 
   const handleSaveStationDisposition = async () => {
@@ -492,54 +542,56 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
       } else {
         await addData(db, "station_disposition", { lga, batches: tempBatches, totalMales, totalFemales, lastUpdated: new Date().toISOString() });
       }
-      window.alert("Population saved.");
+      window.alert("Registry saved.");
     } catch (err) { window.alert("Failed."); }
   };
 
   const handleIssueQuery = async (cm: any) => {
     setIsGenerating(true);
     try {
-      await generateDisciplinaryQuery(cm.name, cm.code, "CIM AUDIT", `CHRONIC BIOMETRIC DEFAULT`);
+      const letterText = await generateDisciplinaryQuery(cm.name, cm.code, cm.lga || lga, `Missing Biometric Clearance for ${cm.month}`);
       await addData(db, "cdr_cases", {
         name: cm.name,
         stateCode: cm.code,
         lga: cm.lga || lga,
         ppa: "CIM BIOMETRIC AUDIT FLAG",
-        misconduct: `CHRONIC BIOMETRIC DEFAULT: Logged during ${cm.month} audit. Query Issued.`,
+        misconduct: `BIOMETRIC CLEARANCE DEFAULT (${cm.month}): missing clearance`,
         dateOfInfraction: new Date().toISOString().split('T')[0],
-        status: 'Pending' as CDRStatus
+        status: 'Pending' as CDRStatus,
+        responseContent: letterText
       });
-      const parentAudit = entries.find(e => e.id === cm.parentId);
-      if (parentAudit) {
-        const newLog: CIMDefaulterLog = { action: 'Query Issued', timestamp: new Date().toISOString(), role: userRole || 'N/A' };
-        const updatedList = parentAudit.unclearedList.map(u => u.code === cm.code ? { ...u, logs: [...(u.logs || []), newLog] } : u);
-        await updateData(db, "cim_clearance", cm.parentId, { unclearedList: updatedList });
-      }
-      window.alert("Action complete.");
+      // Trigger PDF generation for the query letter immediately for sharing
+      generateOfficialPDF({ ...cm, letterText }, 'DISCIPLINARY_QUERY');
+      window.alert("Formal Query issued and PDF document generated.");
     } catch (err) { console.error(err); } finally { setIsGenerating(false); }
   };
 
-  const handlePushToCDR = async (cm: any) => {
+  const handlePushToCDR = async (risk: any) => {
     try {
       await addData(db, "cdr_cases", {
-        name: cm.name,
-        stateCode: cm.code,
-        lga: cm.lga || lga,
-        ppa: "AUTO-PUSHED",
-        misconduct: `CHRONIC DEFAULT: ${cm.count} cycles missed.`,
+        name: risk.name,
+        stateCode: risk.code,
+        lga: risk.lga,
+        ppa: "BIOMETRIC SURVEILLANCE FLAG",
+        misconduct: `BIOMETRIC CLEARANCE DEFAULT (${risk.missedMonths[risk.missedMonths.length-1].month}): missing clearance (Streak: ${risk.maxConsecutive})`,
         dateOfInfraction: new Date().toISOString().split('T')[0],
         status: 'Pending' as CDRStatus
       });
-      window.alert("Pushed to CD&R.");
-    } catch (err) { window.alert("Failed."); }
+      window.alert("Personnel escalated to CD&R.");
+    } catch (err) {
+      window.alert("Failed to escalate case.");
+    }
   };
+
+  const currentTotalM = clearedBatches.reduce((acc, b) => acc + b.males, 0);
+  const currentTotalF = clearedBatches.reduce((acc, b) => acc + b.females, 0);
 
   return (
     <>
-      <div className="w-full lg:w-[380px] no-print shrink-0 space-y-6">
+      <div className="w-full lg:w-[420px] no-print shrink-0 space-y-6">
         {userRole === 'LGI' && (
           <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100">
-            <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">Batch-wise Population</h3>
+            <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">Batch-wise Disposition Registry</h3>
             <div className="space-y-4">
               <div className="space-y-2 max-h-[250px] overflow-auto custom-scrollbar pr-1">
                 {tempBatches.map((b, idx) => (
@@ -550,35 +602,59 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
                 ))}
               </div>
               <div className="bg-slate-100 p-4 rounded-2xl space-y-3">
-                 <input placeholder="BATCH NAME" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold uppercase border" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
+                 <input placeholder="BATCH NAME" className="w-full p-2.5 bg-white text-slate-900 font-bold rounded-lg text-[9px] uppercase border outline-none focus:ring-2 focus:ring-emerald-500" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
                  <div className="grid grid-cols-2 gap-2">
-                    <input type="number" placeholder="MALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold border" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
-                    <input type="number" placeholder="FEMALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold border" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="MALES" className="w-full p-2.5 bg-white text-slate-900 font-bold rounded-lg text-[9px] border outline-none focus:ring-2 focus:ring-emerald-500" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="FEMALES" className="w-full p-2.5 bg-white text-slate-900 font-bold rounded-lg text-[9px] border outline-none focus:ring-2 focus:ring-emerald-500" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
                  </div>
-                 <button onClick={() => { if(newBatch.batch) { setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'', males:0, females:0}); } }} className="w-full py-2 bg-[#004d40] text-white rounded-lg text-[8px] font-black uppercase">Add Batch</button>
+                 <button onClick={() => { if(newBatch.batch) { setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'', males:0, females:0}); } }} className="w-full py-2 bg-[#004d40] text-white rounded-lg text-[8px] font-black uppercase shadow-md">Add Batch</button>
               </div>
-              <button onClick={handleSaveStationDisposition} className="w-full bg-emerald-700 text-white p-4 rounded-xl font-black uppercase text-[9px] shadow-lg">Save Registry</button>
+              <button onClick={handleSaveStationDisposition} className="w-full bg-emerald-700 text-white p-4 rounded-xl font-black uppercase text-[9px] shadow-lg border-b-4 border-emerald-900">Save Official Registry</button>
             </div>
           </div>
         )}
 
         <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
-          <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">New Monthly Audit</h3>
+          <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">Monthly Audit Input</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <input required placeholder="AUDIT MONTH" className="w-full p-3 bg-slate-50 rounded-lg font-bold uppercase border text-xs" value={formData.month} onChange={e => setFormData({...formData, month: (e.target as HTMLInputElement).value.toUpperCase()})} />
-            <div className="grid grid-cols-2 gap-2">
-               <div><label className="text-[7px] font-black text-slate-400 ml-1">Males Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
-               <div><label className="text-[7px] font-black text-slate-400 ml-1">Females Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
-            </div>
-            <div className="border-t pt-4">
-               <h4 className="text-[7px] font-black uppercase text-red-800 mb-2 ml-1">Log Defaulter</h4>
+            <input required placeholder="AUDIT MONTH (e.g. JANUARY 2026)" className="w-full p-3 bg-slate-50 text-slate-900 font-bold rounded-lg border text-xs outline-none focus:ring-2 focus:ring-[#004d40]" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
+            
+            <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+               <h4 className="text-[8px] font-black uppercase text-emerald-800 mb-2">Record Cleared by Batch</h4>
+               <div className="space-y-2 mb-3 max-h-[150px] overflow-auto">
+                 {clearedBatches.map((cb, i) => (
+                   <div key={i} className="flex justify-between items-center text-[8px] font-bold uppercase bg-white p-2 rounded-lg border text-slate-900">
+                      <span>{cb.batch}</span>
+                      <span className="text-emerald-700">M: {cb.males} | F: {cb.females}</span>
+                   </div>
+                 ))}
+               </div>
                <div className="space-y-2">
-                  <input placeholder="CM NAME" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.name} onChange={e => setUnclearedInput({...unclearedInput, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
-                  <input placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.code} onChange={e => setUnclearedInput({...unclearedInput, code: (e.target as HTMLInputElement).value.toUpperCase()})} />
-                  <button type="button" onClick={() => { if(unclearedInput.code) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput, reason: 'Biometric Default'}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-slate-100 rounded-lg text-[7px] font-black uppercase">Add Defaulter ({tempUnclearedList.length})</button>
+                 <select className="w-full p-2 bg-white text-slate-900 font-bold rounded-lg border text-[8px] outline-none focus:ring-2 focus:ring-[#004d40]" onChange={e => setNewClearedBatch({...newClearedBatch, batch: e.target.value})} value={newClearedBatch.batch}>
+                    <option value="">Select Batch...</option>
+                    {tempBatches.map(b => <option key={b.batch} value={b.batch}>{b.batch}</option>)}
+                 </select>
+                 <div className="grid grid-cols-2 gap-2">
+                    <input type="number" placeholder="M CLEARED" className="w-full p-2 bg-white text-slate-900 font-bold rounded-lg border text-[8px] outline-none focus:ring-2 focus:ring-[#004d40] placeholder:text-slate-400" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="F CLEARED" className="w-full p-2 bg-white text-slate-900 font-bold rounded-lg border text-[8px] outline-none focus:ring-2 focus:ring-[#004d40] placeholder:text-slate-400" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt(e.target.value) || 0})} />
+                 </div>
+                 <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'', males:0, females:0}); } }} className="w-full py-2 bg-[#004d40] text-white rounded-lg text-[7px] font-black uppercase shadow-sm">Add Batch Result</button>
+               </div>
+               <div className="mt-3 pt-2 border-t flex justify-between">
+                  <span className="text-[7px] font-black text-slate-400 uppercase">Current Subtotal:</span>
+                  <span className="text-[8px] font-black text-[#004d40]">{currentTotalM + currentTotalF} (M:{currentTotalM} | F:{currentTotalF})</span>
                </div>
             </div>
-            <button className="w-full bg-[#004d40] text-white p-4 rounded-xl font-black uppercase text-[9px] border-b-4 border-emerald-950">Publish Final Audit</button>
+
+            <div className="border-t pt-4">
+               <h4 className="text-[7px] font-black uppercase text-red-800 mb-2 ml-1">Add Clearance Defaulters</h4>
+               <div className="space-y-2">
+                  <input placeholder="CM FULL NAME" className="w-full p-2 bg-slate-50 text-slate-900 font-bold rounded-lg border text-[10px] outline-none focus:ring-2 focus:ring-red-400" value={unclearedInput.name} onChange={e => setUnclearedInput({...unclearedInput, name: e.target.value.toUpperCase()})} />
+                  <input placeholder="STATE CODE" className="w-full p-2 bg-slate-50 text-slate-900 font-bold rounded-lg border text-[10px] outline-none focus:ring-2 focus:ring-red-400" value={unclearedInput.code} onChange={e => setUnclearedInput({...unclearedInput, code: e.target.value.toUpperCase()})} />
+                  <button type="button" onClick={() => { if(unclearedInput.code) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput, reason: 'Biometric Default'}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[7px] font-black uppercase shadow-sm">Flag Personnel ({tempUnclearedList.length})</button>
+               </div>
+            </div>
+            <button className="w-full bg-[#004d40] text-white p-4 rounded-xl font-black uppercase text-[9px] border-b-4 border-emerald-950 shadow-xl transform active:scale-95 transition-transform">Publish Final Monthly Audit</button>
           </form>
         </div>
       </div>
@@ -589,45 +665,49 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
             <div className="bg-[#004d40] p-10 rounded-[3rem] text-white shadow-2xl animate-official relative overflow-hidden">
                <div className="flex justify-between items-start mb-10">
                   <div>
-                    <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2 font-serif-heading">Zonal Biometric Disposition</h2>
-                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Aggregate Performance Summary</p>
+                    <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2 font-serif-heading">Zonal Performance Registry</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Aggregate Biometric Surveillance</p>
                   </div>
                   <div className="text-right">
                     <p className="text-5xl font-black tracking-tighter leading-none mb-2">
                       {entries.reduce((acc, e) => acc + (e.clearedCount || 0), 0)}
                     </p>
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Grand Total Successfull Clearances</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Total Cleared Zone-Wide</p>
                   </div>
                </div>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Zone Population</p>
-                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalMales + d.totalFemales, 0)}</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Male Cleared</p>
+                    <p className="text-2xl font-black">{entries.reduce((acc, e) => acc + (e.maleCount || 0), 0)}</p>
                   </div>
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Aggregate Flagged Cases</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Female Cleared</p>
+                    <p className="text-2xl font-black">{entries.reduce((acc, e) => acc + (e.femaleCount || 0), 0)}</p>
+                  </div>
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10 text-center">
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Defaulter Count</p>
                     <p className="text-2xl font-black text-red-400">{entries.reduce((acc, e) => acc + (e.unclearedList?.length || 0), 0)}</p>
                   </div>
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Active Batch Streams</p>
-                    <p className="text-2xl font-black">{zoneBatchSummary.length}</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Surveillance Alerts</p>
+                    <p className="text-2xl font-black">{abscondmentRisks.filter(r => r.maxConsecutive >= 3).length}</p>
                   </div>
                </div>
             </div>
 
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
-               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Local Government Breakdown</h3>
+               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Local Government Performance Index</h3>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  {LGAS.map(lgaName => {
                    const disp = stationDispositions.find(d => d.lga === lgaName);
-                   const perf = zonalClearanceStats[lgaName];
+                   const perf = zonalClearanceStats[lgaName] || { cleared: 0, flagged: 0, maleCleared: 0, femaleCleared: 0 };
                    return (
                      <div key={lgaName} className="bg-slate-50 p-8 rounded-[3rem] border border-slate-100 flex flex-col hover:shadow-xl transition-all">
                         <div className="flex justify-between items-start mb-6">
                            <h4 className="text-2xl font-black uppercase text-slate-800">{lgaName} STATION</h4>
                            <div className="text-right">
                              <p className="text-xl font-black text-emerald-700">{(disp?.totalMales || 0) + (disp?.totalFemales || 0)}</p>
-                             <p className="text-[7px] font-black text-slate-400 uppercase">Reg. Strength</p>
+                             <p className="text-[7px] font-black text-slate-400 uppercase">Reg. Census</p>
                            </div>
                         </div>
                         
@@ -635,18 +715,21 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
                            <div className="p-4 bg-white rounded-2xl border shadow-sm">
                              <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Total Cleared</p>
                              <p className="text-xl font-black text-emerald-600">{perf.cleared}</p>
+                             <div className="flex gap-2 mt-1 opacity-40">
+                               <span className="text-[6px] font-black">M: {perf.maleCleared}</span>
+                               <span className="text-[6px] font-black">F: {perf.femaleCleared}</span>
+                             </div>
                            </div>
-                           <div className="p-4 bg-white rounded-2xl border shadow-sm">
-                             <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Flagged / Defaulters</p>
+                           <div className="p-4 bg-white rounded-2xl border shadow-sm text-center">
+                             <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Defaulters Logged</p>
                              <p className="text-xl font-black text-red-600">{perf.flagged}</p>
                            </div>
                         </div>
 
                         <div className="space-y-2">
-                           <p className="text-[7px] font-black text-slate-400 uppercase px-1">Population Disposition</p>
                            {disp?.batches?.map((b, bi) => (
-                             <div key={bi} className="flex justify-between items-center text-[9px] font-bold p-2 bg-slate-200/50 rounded-lg">
-                                <span className="uppercase">{b.batch}</span>
+                             <div key={bi} className="flex justify-between items-center text-[9px] font-bold p-2 bg-slate-200/50 rounded-lg uppercase">
+                                <span>{b.batch}</span>
                                 <span className="text-[#004d40]">M: {b.males} | F: {b.females}</span>
                              </div>
                            ))}
@@ -659,43 +742,83 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
           </div>
         )}
 
-        {/* Abscondment Risk Warnings */}
+        {/* Abscondment Alerts with Detailed History */}
         {abscondmentRisks.length > 0 && (
-          <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] border-4 border-red-500 shadow-2xl animate-official">
+          <div className="bg-white p-10 rounded-[3rem] border-4 border-red-500 shadow-2xl animate-official relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-10 opacity-5 scale-150 rotate-45"><AbscondedIcon /></div>
             <div className="flex items-center gap-5 mb-8">
-              <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black">!</div>
-              <div><h3 className="text-2xl font-black uppercase text-red-600 leading-none mb-1 font-serif-heading">High Risk Surveillance</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Missed Multiple Clearance Cycles</p></div>
+              <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg animate-pulse">!</div>
+              <div>
+                <h3 className="text-3xl font-black uppercase text-red-600 leading-none mb-1 font-serif-heading tracking-tighter">Clearance Surveillance Alerts</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Chronic Biometric Default Surveillance</p>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               {abscondmentRisks.map((risk: any, idx: number) => (
-                <div key={idx} className={`p-5 rounded-3xl border-2 transition-all ${risk.count >= 3 ? 'bg-red-900 text-white border-red-950' : 'bg-red-50 text-red-900 border-red-200'}`}>
-                  <h4 className="font-black uppercase text-sm mb-1">{risk.name}</h4>
+                <div key={idx} className={`p-6 rounded-[2rem] border-2 transition-all hover:scale-[1.02] shadow-sm ${risk.maxConsecutive >= 3 ? 'bg-red-900 text-white border-red-950' : 'bg-red-50 text-red-900 border-red-200'}`}>
+                  <h4 className="font-black uppercase text-base mb-1 tracking-tight leading-tight">{risk.name}</h4>
                   <p className="text-[10px] font-bold uppercase opacity-60 mb-4">{risk.code} • {risk.lga}</p>
-                  <div className="flex justify-between items-center pt-3 border-t border-black/10">
-                    <div className="text-center"><span className="block text-xs font-black">{risk.count} / 3</span><span className="text-[6px] uppercase opacity-60">Cycles Missed</span></div>
-                    <div className="text-right"><span className="block text-xs font-black">{risk.daysRemaining}</span><span className="text-[6px] uppercase opacity-60">Est. Days to Absconded</span></div>
+                  
+                  <div className="space-y-4 mb-6">
+                    <div className="p-3 bg-black/5 rounded-xl border border-black/5">
+                      <p className="text-[8px] font-black uppercase opacity-60 mb-2">Default Trail:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {risk.missedMonths.map((m: any, i: number) => (
+                          <span key={i} className="px-2 py-1 bg-white/20 rounded-lg text-[8px] font-black uppercase border border-white/10">
+                            {m.month}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center px-1">
+                      <div className="text-center">
+                        <span className="block text-xl font-black">{risk.maxConsecutive} / 3</span>
+                        <span className="text-[7px] uppercase opacity-60 font-black">Consecutive</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-black uppercase">{risk.maxConsecutive >= 3 ? 'ABSCONDED' : 'WARNING'}</span>
+                        <span className="text-[7px] uppercase opacity-60 font-black">Current Status</span>
+                      </div>
+                    </div>
                   </div>
-                  <button onClick={() => handlePushToCDR(risk)} className="w-full mt-4 py-2 bg-black text-white text-[8px] font-black uppercase rounded-lg shadow-lg">Push to Disciplinary Registry</button>
+                  
+                  <button onClick={() => handlePushToCDR(risk)} className={`w-full py-3 rounded-xl text-[10px] font-black uppercase shadow-xl transition-all ${risk.maxConsecutive >= 3 ? 'bg-white text-red-900 hover:bg-black hover:text-white' : 'bg-red-600 text-white hover:bg-black'}`}>
+                    {risk.maxConsecutive >= 3 ? 'PROCESS ABSCONDMENT CASE' : 'ESCALATE TO CD&R'}
+                  </button>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <div className="bg-[#004d40] text-white p-8 rounded-[2.5rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-8">
-           <div className="flex items-baseline gap-4"><span className="text-5xl font-black tracking-tighter leading-none">{entries.length}</span><span className="text-lg font-black uppercase opacity-40 tracking-widest font-serif-heading">Audit Entries</span></div>
-           <button onClick={() => setIsLedgerOpen(true)} className="px-8 py-4 bg-white text-[#004d40] rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-3 shadow-2xl hover:bg-emerald-50 transition-all"><FileTextIcon /> Audit Action Ledger</button>
+        <div className="bg-[#004d40] text-white p-10 rounded-[3rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-8 group">
+           <div className="flex items-baseline gap-4">
+             <span className="text-6xl font-black tracking-tighter leading-none group-hover:scale-110 transition-transform duration-500">{entries.length}</span>
+             <span className="text-xl font-black uppercase opacity-40 tracking-[0.4em] font-serif-heading">Audit Periods</span>
+           </div>
+           <button onClick={() => setIsLedgerOpen(true)} className="px-10 py-5 bg-white text-[#004d40] rounded-[2rem] font-black uppercase text-xs tracking-widest flex items-center gap-4 shadow-2xl hover:bg-black hover:text-white transition-all transform hover:-translate-y-1"><FileTextIcon /> Clearance Action Ledger</button>
         </div>
 
         {entries.map((e: CIMClearance) => (
-          <div key={e.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 flex flex-col sm:flex-row justify-between items-center shadow-sm hover:shadow-lg transition-all group gap-6">
-             <div><h4 className="text-2xl font-black uppercase text-slate-800 font-serif-heading tracking-tight">{e.month}</h4><p className="text-[10px] font-black text-emerald-800 tracking-[0.2em]">{e.lga} STATION AUDIT</p></div>
-             <div className="flex gap-10 items-center">
-               <div className="text-center"><span className="block text-3xl font-black text-emerald-600">{e.clearedCount}</span><span className="text-[8px] font-black text-slate-400 uppercase">CLEARED SUCCESSFULLY</span></div>
-               <div className="text-center"><span className="block text-3xl font-black text-red-600">{e.unclearedList?.length || 0}</span><span className="text-[8px] font-black text-slate-400 uppercase">FLAGGED DEFAULTERS</span></div>
-               <div className="flex gap-2">
-                 <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="p-3 text-emerald-600 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-all"><DownloadIcon /></button>
-                 <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-3 text-red-100 group-hover:text-red-400 hover:scale-110 transition-all"><TrashIcon /></button>
+          <div key={e.id} className="bg-white p-10 rounded-[3.5rem] border border-slate-100 flex flex-col sm:flex-row justify-between items-center shadow-sm hover:shadow-2xl transition-all group gap-8">
+             <div className="flex-1">
+               <h4 className="text-3xl font-black uppercase text-slate-800 font-serif-heading tracking-tighter mb-2 leading-none">{e.month}</h4>
+               <p className="text-[11px] font-black text-emerald-800 tracking-[0.4em] uppercase">{e.lga} STATION AUDIT SUMMARY</p>
+               <p className="text-[9px] text-slate-400 mt-2 font-bold italic">Logged: {new Date(e.dateAdded).toLocaleDateString()}</p>
+             </div>
+             <div className="flex gap-12 items-center">
+               <div className="text-center group-hover:scale-105 transition-transform">
+                 <span className="block text-4xl font-black text-emerald-600 leading-none mb-2">{e.clearedCount}</span>
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">CLEARED SUCCESSFULLY</span>
+                 <p className="text-[7px] font-bold text-slate-300 mt-1">M: {e.maleCount} | F: {e.femaleCount}</p>
+               </div>
+               <div className="text-center group-hover:scale-105 transition-transform">
+                 <span className="block text-4xl font-black text-red-600 leading-none mb-2">{e.unclearedList?.length || 0}</span>
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">FLAGGED DEFAULTERS</span>
+               </div>
+               <div className="flex gap-3 ml-4">
+                 <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-14 h-14 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-md"><DownloadIcon /></button>
+                 <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-14 h-14 flex items-center justify-center text-red-100 bg-red-50/50 rounded-2xl group-hover:text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-md"><TrashIcon /></button>
                </div>
              </div>
           </div>
@@ -704,48 +827,59 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
 
       {isLedgerOpen && (
         <div className="fixed inset-0 bg-slate-900/98 backdrop-blur-3xl z-[500] flex items-center justify-center p-4 animate-official">
-          <div className="bg-white w-full max-w-6xl rounded-[3.5rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-            <div className="bg-[#004d40] p-10 text-white flex justify-between items-center shrink-0 border-b-8 border-black/10">
-               <h3 className="text-2xl font-black uppercase font-serif-heading tracking-tighter">Defaulter Administrative Hub</h3>
-               <button onClick={() => setIsLedgerOpen(false)} className="w-14 h-14 bg-white/10 hover:bg-red-600 rounded-2xl flex items-center justify-center transition-all text-xl font-black">✕</button>
+          <div className="bg-white w-full max-w-7xl rounded-[4rem] shadow-2xl overflow-hidden flex flex-col h-[90vh] border-[12px] border-emerald-950/10">
+            <div className="bg-[#004d40] p-12 text-white flex justify-between items-center shrink-0 border-b-8 border-black/10">
+               <div>
+                 <h3 className="text-3xl font-black uppercase font-serif-heading tracking-tighter leading-none mb-2">Biometric Default Tracker</h3>
+                 <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Administrative Audit Surveillance Ledger</p>
+               </div>
+               <button onClick={() => setIsLedgerOpen(false)} className="w-16 h-16 bg-white/10 hover:bg-red-600 rounded-3xl flex items-center justify-center transition-all text-xl font-black border border-white/10 shadow-xl">✕</button>
             </div>
-            <div className="flex-1 overflow-auto p-10 custom-scrollbar">
-               <table className="w-full border-separate border-spacing-y-4">
-                  <thead><tr className="text-[10px] font-black uppercase text-slate-400 text-left"><th className="px-8 pb-4">Personnel Information</th><th className="px-8 pb-4">Audit Source</th><th className="px-8 pb-4">Officer Logs & Escalation</th></tr></thead>
+            <div className="flex-1 overflow-auto p-12 custom-scrollbar">
+               <table className="w-full border-separate border-spacing-y-6">
+                  <thead><tr className="text-[11px] font-black uppercase text-slate-400 text-left tracking-widest"><th className="px-10 pb-4">Personnel Information</th><th className="px-10 pb-4">Source Audit</th><th className="px-10 pb-4">Actions & Escalation</th></tr></thead>
                   <tbody>
-                    {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, parentId: entry.id }))], []).map((cm: any, idx: number) => (
-                      <tr key={idx} className="bg-slate-50 hover:bg-white rounded-3xl transition-all shadow-sm">
-                        <td className="px-8 py-8 rounded-l-[3rem]">
-                          <p className="font-black uppercase text-slate-800 text-base mb-1">{cm.name}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cm.code}</p>
-                          {cm.logs && cm.logs.length > 0 && (
-                            <div className="mt-4 space-y-2 border-t pt-3 border-slate-200">
-                               {cm.logs.map((log: CIMDefaulterLog, lidx: number) => (
-                                 <div key={lidx} className="flex items-center gap-3 text-[9px] font-bold text-emerald-800 bg-emerald-50/50 p-2 rounded-lg">
-                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                                    <span>{log.action}</span>
-                                    <span className="opacity-30">•</span>
-                                    <span className="text-slate-400 uppercase">{new Date(log.timestamp).toLocaleDateString()}</span>
-                                    <span className="opacity-30">•</span>
-                                    <span className="text-slate-400 uppercase">Officer: {log.role}</span>
-                                 </div>
-                               ))}
+                    {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, parentId: entry.id, dateAdded: entry.dateAdded }))], []).map((cm: any, idx: number) => {
+                      const riskData = abscondmentRisks.find(r => r.code === cm.code);
+                      return (
+                        <tr key={idx} className="bg-slate-50 hover:bg-white rounded-[3rem] transition-all shadow-sm hover:shadow-2xl group">
+                          <td className="px-10 py-10 rounded-l-[3.5rem] border-l-8 border-emerald-900/5 group-hover:border-emerald-500 transition-colors">
+                            <p className="font-black uppercase text-slate-800 text-xl mb-1 tracking-tight leading-none">{cm.name}</p>
+                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">{cm.code}</p>
+                            <div className="flex flex-wrap gap-2">
+                               <span className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-[8px] font-black uppercase border border-red-100">Failed: {cm.month}</span>
                             </div>
-                          )}
-                        </td>
-                        <td className="px-8 py-8">
-                          <span className="px-4 py-2 bg-emerald-50 text-emerald-800 rounded-full text-[9px] font-black uppercase border border-emerald-100">{cm.lga} / {cm.month}</span>
-                        </td>
-                        <td className="px-8 py-8 rounded-r-[3rem]">
-                           <div className="flex flex-wrap gap-3">
-                             <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-6 py-2.5 bg-[#004d40] text-white text-[9px] font-black uppercase rounded-xl shadow-lg hover:bg-black transition-all disabled:opacity-50">
-                               {isGenerating ? 'Processing...' : 'Issue Formal Query'}
-                             </button>
-                             <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC CIM FLAG: Member ${cm.name} (${cm.code}) missed biometric clearance at ${cm.lga} Unit.`)}`)} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl"><WhatsAppIcon /></button>
-                           </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-10 py-10">
+                            <div className="flex flex-col gap-3">
+                               <span className="px-5 py-2.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] font-black uppercase border border-emerald-100 w-fit">{cm.lga} STATION</span>
+                               {riskData && (
+                                 <div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                                    <p className="text-[8px] font-black uppercase text-slate-400 mb-2 tracking-widest">Missed Clearance History:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                       {riskData.missedMonths.map((m: any, mi: number) => (
+                                         <div key={mi} className="text-center px-2 py-1 bg-slate-50 rounded-lg border border-slate-100">
+                                            <p className="text-[9px] font-black text-slate-700 leading-none">{m.month}</p>
+                                            <p className="text-[6px] text-slate-400 font-bold uppercase">{new Date(m.date).toLocaleDateString()}</p>
+                                         </div>
+                                       ))}
+                                    </div>
+                                    <p className="mt-4 text-[10px] font-black text-red-600 uppercase">Streak: {riskData.maxConsecutive} Missed Cycles</p>
+                                 </div>
+                               )}
+                            </div>
+                          </td>
+                          <td className="px-10 py-10 rounded-r-[3.5rem]">
+                             <div className="flex flex-wrap gap-4">
+                               <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-8 py-3 bg-[#004d40] text-white text-[10px] font-black uppercase rounded-2xl shadow-xl hover:bg-black transition-all disabled:opacity-50">
+                                 {isGenerating ? 'Processing...' : 'Generate Legal Query'}
+                               </button>
+                               <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA CIM ALERT: Member ${cm.name} (${cm.code}) at ${cm.lga} Unit missed biometric clearance for ${cm.month}. Surveillance active.`)}`)} className="w-12 h-12 flex items-center justify-center bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-md"><WhatsAppIcon /></button>
+                             </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                </table>
             </div>
@@ -759,7 +893,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
 /* --- CD&R Module --- */
 const CDRModule = ({ entries, lga, db, userRole }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   const handleSubmit = async (e: any) => {
@@ -801,7 +934,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
             <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <input required placeholder="PPA" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.ppa} onChange={e => setFormData({...formData, ppa: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 rounded-xl font-medium border h-24 text-xs" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: (e.target as HTMLTextAreaElement).value})} />
-            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log Case</button>
+            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log Official Case</button>
           </form>
         </div>
       </div>

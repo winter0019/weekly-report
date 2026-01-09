@@ -66,7 +66,7 @@ export interface CIMClearance {
     reason: string;
     logs?: CIMDefaulterLog[];
   }[];
-  disposition: CIMBatchDisposition[];
+  batchClearance: CIMBatchDisposition[];
   dateAdded: string;
 }
 
