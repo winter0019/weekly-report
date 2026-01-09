@@ -405,7 +405,7 @@ const CWHSModule = ({ entries, db, lga }: { entries: CorpsMemberEntry[], db: any
 
 /* --- CIM Module --- */
 const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entries: CIMClearance[], db: any, lga: DauraLga, userRole: UserRole | null, stationDispositions: StationDisposition[] }) => {
-  const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
+  const [formData, setFormData] = useState({ month: '', maleCount: 0, femaleCount: 0 });
   const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string}[]>([]);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
@@ -441,7 +441,20 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
       .sort((a: any, b: any) => a.daysRemaining - b.daysRemaining);
   }, [entries]);
 
-  // Aggregate zone-wide batch data for ZI
+  // Aggregate zone-wide statistics for ZI
+  const zonalClearanceStats = useMemo(() => {
+    const stats: Record<string, { cleared: number, flagged: number }> = {};
+    LGAS.forEach(l => stats[l] = { cleared: 0, flagged: 0 });
+    
+    entries.forEach(audit => {
+      if (stats[audit.lga]) {
+        stats[audit.lga].cleared += (audit.clearedCount || 0);
+        stats[audit.lga].flagged += (audit.unclearedList?.length || 0);
+      }
+    });
+    return stats;
+  }, [entries]);
+
   const zoneBatchSummary = useMemo(() => {
     const summary: Record<string, { males: number, females: number }> = {};
     stationDispositions.forEach(disp => {
@@ -454,23 +467,19 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
     return Object.entries(summary).map(([batch, counts]) => ({ batch, ...counts }));
   }, [stationDispositions]);
 
-  // Total defaulters per LGA
-  const defaulterCounts = useMemo(() => {
-    const lgaTotals: Record<string, number> = {};
-    // Extract unique defaulters across all audits per LGA
-    entries.forEach(audit => {
-      if (!lgaTotals[audit.lga]) lgaTotals[audit.lga] = 0;
-      // We count unique codes per month audit for that LGA
-      lgaTotals[audit.lga] += (audit.unclearedList?.length || 0);
-    });
-    return lgaTotals;
-  }, [entries]);
-
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    const data = { ...formData, totalCMs: Number(formData.maleCount) + Number(formData.femaleCount), lga: lga || 'Daura', unclearedList: tempUnclearedList.map(u => ({...u, logs: []})), dateAdded: new Date().toISOString() };
+    const totalC = Number(formData.maleCount) + Number(formData.femaleCount);
+    const data = { 
+      ...formData, 
+      clearedCount: totalC,
+      totalCMs: totalC + tempUnclearedList.length, 
+      lga: lga || 'Daura', 
+      unclearedList: tempUnclearedList.map(u => ({...u, logs: []})), 
+      dateAdded: new Date().toISOString() 
+    };
     await addData(db, "cim_clearance", data);
-    setFormData({ month: '', maleCount: 0, femaleCount: 0, clearedCount: 0 });
+    setFormData({ month: '', maleCount: 0, femaleCount: 0 });
     setTempUnclearedList([]);
   };
 
@@ -483,14 +492,14 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
       } else {
         await addData(db, "station_disposition", { lga, batches: tempBatches, totalMales, totalFemales, lastUpdated: new Date().toISOString() });
       }
-      window.alert("Station population breakdown saved successfully.");
-    } catch (err) { window.alert("Failed to save disposition."); }
+      window.alert("Population saved.");
+    } catch (err) { window.alert("Failed."); }
   };
 
   const handleIssueQuery = async (cm: any) => {
     setIsGenerating(true);
     try {
-      const queryText = await generateDisciplinaryQuery(cm.name, cm.code, "CIM AUDIT", `CHRONIC BIOMETRIC DEFAULT`);
+      await generateDisciplinaryQuery(cm.name, cm.code, "CIM AUDIT", `CHRONIC BIOMETRIC DEFAULT`);
       await addData(db, "cdr_cases", {
         name: cm.name,
         stateCode: cm.code,
@@ -502,19 +511,12 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
       });
       const parentAudit = entries.find(e => e.id === cm.parentId);
       if (parentAudit) {
-        const newLog: CIMDefaulterLog = {
-          action: 'Formal AI Query Issued',
-          timestamp: new Date().toISOString(),
-          role: userRole || 'Unknown'
-        };
-        const updatedUnclearedList = parentAudit.unclearedList.map(u => {
-          if (u.code === cm.code) return { ...u, logs: [...(u.logs || []), newLog] };
-          return u;
-        });
-        await updateData(db, "cim_clearance", cm.parentId, { unclearedList: updatedUnclearedList });
+        const newLog: CIMDefaulterLog = { action: 'Query Issued', timestamp: new Date().toISOString(), role: userRole || 'N/A' };
+        const updatedList = parentAudit.unclearedList.map(u => u.code === cm.code ? { ...u, logs: [...(u.logs || []), newLog] } : u);
+        await updateData(db, "cim_clearance", cm.parentId, { unclearedList: updatedList });
       }
-      window.alert(`Query generated and action logged for ${cm.name}. Case escalated to CD&R.`);
-    } catch (err) { console.error(err); window.alert("Failed to complete administrative action."); } finally { setIsGenerating(false); }
+      window.alert("Action complete.");
+    } catch (err) { console.error(err); } finally { setIsGenerating(false); }
   };
 
   const handlePushToCDR = async (cm: any) => {
@@ -523,13 +525,13 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
         name: cm.name,
         stateCode: cm.code,
         lga: cm.lga || lga,
-        ppa: "AUTO-FORWARDED (CIM SURVEILLANCE)",
-        misconduct: `CHRONIC BIOMETRIC DEFAULT: Failed biometric clearance for ${cm.count} cycles.`,
+        ppa: "AUTO-PUSHED",
+        misconduct: `CHRONIC DEFAULT: ${cm.count} cycles missed.`,
         dateOfInfraction: new Date().toISOString().split('T')[0],
         status: 'Pending' as CDRStatus
       });
-      window.alert(`Personnel ${cm.code} has been pushed to CD&R.`);
-    } catch (err) { window.alert("Action failed."); }
+      window.alert("Pushed to CD&R.");
+    } catch (err) { window.alert("Failed."); }
   };
 
   return (
@@ -548,14 +550,14 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
                 ))}
               </div>
               <div className="bg-slate-100 p-4 rounded-2xl space-y-3">
-                 <input placeholder="BATCH NAME" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold uppercase outline-none border" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
+                 <input placeholder="BATCH NAME" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold uppercase border" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
                  <div className="grid grid-cols-2 gap-2">
-                    <input type="number" placeholder="MALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold outline-none border" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
-                    <input type="number" placeholder="FEMALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold outline-none border" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="MALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold border" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
+                    <input type="number" placeholder="FEMALES" className="w-full p-2.5 bg-white rounded-lg text-[9px] font-bold border" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
                  </div>
                  <button onClick={() => { if(newBatch.batch) { setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'', males:0, females:0}); } }} className="w-full py-2 bg-[#004d40] text-white rounded-lg text-[8px] font-black uppercase">Add Batch</button>
               </div>
-              <button onClick={handleSaveStationDisposition} className="w-full bg-emerald-700 text-white p-4 rounded-xl font-black uppercase text-[9px] shadow-lg">Save Station Registry</button>
+              <button onClick={handleSaveStationDisposition} className="w-full bg-emerald-700 text-white p-4 rounded-xl font-black uppercase text-[9px] shadow-lg">Save Registry</button>
             </div>
           </div>
         )}
@@ -563,7 +565,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
         <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 lg:sticky lg:top-40">
           <h3 className="font-black uppercase text-[8px] mb-4 pb-1 border-b text-slate-400 tracking-widest text-center">New Monthly Audit</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <input required placeholder="AUDIT MONTH" className="w-full p-3 bg-slate-50 rounded-lg font-bold uppercase border outline-none text-xs" value={formData.month} onChange={e => setFormData({...formData, month: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="AUDIT MONTH" className="w-full p-3 bg-slate-50 rounded-lg font-bold uppercase border text-xs" value={formData.month} onChange={e => setFormData({...formData, month: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <div className="grid grid-cols-2 gap-2">
                <div><label className="text-[7px] font-black text-slate-400 ml-1">Males Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.maleCount} onChange={e => setFormData({...formData, maleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
                <div><label className="text-[7px] font-black text-slate-400 ml-1">Females Cleared</label><input type="number" className="w-full p-2 bg-slate-50 rounded-lg font-bold border text-xs" value={formData.femaleCount} onChange={e => setFormData({...formData, femaleCount: parseInt((e.target as HTMLInputElement).value) || 0})} /></div>
@@ -573,7 +575,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
                <div className="space-y-2">
                   <input placeholder="CM NAME" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.name} onChange={e => setUnclearedInput({...unclearedInput, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
                   <input placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded-lg text-[10px] font-bold border" value={unclearedInput.code} onChange={e => setUnclearedInput({...unclearedInput, code: (e.target as HTMLInputElement).value.toUpperCase()})} />
-                  <button type="button" onClick={() => { if(unclearedInput.code) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput, reason: 'Manual audit flag'}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-slate-100 rounded-lg text-[7px] font-black uppercase">Add Defaulter ({tempUnclearedList.length})</button>
+                  <button type="button" onClick={() => { if(unclearedInput.code) { setTempUnclearedList([...tempUnclearedList, {...unclearedInput, reason: 'Biometric Default'}]); setUnclearedInput({name:'',code:'',reason:''}); } }} className="w-full p-2 bg-slate-100 rounded-lg text-[7px] font-black uppercase">Add Defaulter ({tempUnclearedList.length})</button>
                </div>
             </div>
             <button className="w-full bg-[#004d40] text-white p-4 rounded-xl font-black uppercase text-[9px] border-b-4 border-emerald-950">Publish Final Audit</button>
@@ -582,106 +584,72 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
       </div>
 
       <div className="flex-1 space-y-8">
-        {/* Zonal Dashboard for ZI Role */}
         {userRole === 'ZI' && (
           <div className="space-y-6">
             <div className="bg-[#004d40] p-10 rounded-[3rem] text-white shadow-2xl animate-official relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-8 opacity-10 scale-150 rotate-12"><DashboardIcon /></div>
                <div className="flex justify-between items-start mb-10">
                   <div>
-                    <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2 font-serif-heading">Zonal Registry Disposition</h2>
-                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Aggregate Station Intelligence</p>
+                    <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2 font-serif-heading">Zonal Biometric Disposition</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-60">Aggregate Performance Summary</p>
                   </div>
                   <div className="text-right">
                     <p className="text-5xl font-black tracking-tighter leading-none mb-2">
-                      {stationDispositions.reduce((acc, d) => acc + d.totalMales + d.totalFemales, 0)}
+                      {entries.reduce((acc, e) => acc + (e.clearedCount || 0), 0)}
                     </p>
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Grand Total Personnel</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Grand Total Successfull Clearances</p>
                   </div>
                </div>
-               
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Males</p>
-                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalMales, 0)}</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Zone Population</p>
+                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalMales + d.totalFemales, 0)}</p>
                   </div>
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Total Females</p>
-                    <p className="text-2xl font-black">{stationDispositions.reduce((acc, d) => acc + d.totalFemales, 0)}</p>
-                  </div>
-                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Zone Defaulters</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Aggregate Flagged Cases</p>
                     <p className="text-2xl font-black text-red-400">{entries.reduce((acc, e) => acc + (e.unclearedList?.length || 0), 0)}</p>
                   </div>
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10">
-                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Active Batches</p>
+                    <p className="text-[8px] font-black uppercase opacity-60 mb-2 tracking-widest">Active Batch Streams</p>
                     <p className="text-2xl font-black">{zoneBatchSummary.length}</p>
                   </div>
                </div>
             </div>
 
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
-               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Zone-Wide Batch Summary</h3>
-               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                 {zoneBatchSummary.map((bs, i) => (
-                   <div key={i} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col justify-between hover:shadow-lg transition-all border-l-8 border-emerald-700">
-                      <p className="text-lg font-black uppercase text-slate-800 mb-4">{bs.batch}</p>
-                      <div className="flex gap-4">
-                         <div className="flex-1 bg-white p-3 rounded-xl border text-center">
-                            <p className="text-[7px] font-black text-slate-400 uppercase">Males</p>
-                            <p className="text-lg font-black text-slate-700">{bs.males}</p>
-                         </div>
-                         <div className="flex-1 bg-white p-3 rounded-xl border text-center">
-                            <p className="text-[7px] font-black text-slate-400 uppercase">Females</p>
-                            <p className="text-lg font-black text-slate-700">{bs.females}</p>
-                         </div>
-                      </div>
-                      <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
-                         <span className="text-[9px] font-black text-[#004d40] uppercase">Combined Strength</span>
-                         <span className="text-xl font-black text-[#004d40]">{bs.males + bs.females}</span>
-                      </div>
-                   </div>
-                 ))}
-               </div>
-            </div>
-
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
-               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Station-Specific Breakdowns</h3>
+               <h3 className="text-xl font-black uppercase tracking-tighter text-[#004d40] mb-8 font-serif-heading border-b pb-4">Local Government Breakdown</h3>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  {LGAS.map(lgaName => {
                    const disp = stationDispositions.find(d => d.lga === lgaName);
+                   const perf = zonalClearanceStats[lgaName];
                    return (
-                     <div key={lgaName} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex flex-col group relative overflow-hidden">
+                     <div key={lgaName} className="bg-slate-50 p-8 rounded-[3rem] border border-slate-100 flex flex-col hover:shadow-xl transition-all">
                         <div className="flex justify-between items-start mb-6">
-                           <div>
-                             <h4 className="text-2xl font-black uppercase tracking-tighter text-slate-800">{lgaName} STATION</h4>
-                             <p className="text-[8px] font-black text-emerald-700 uppercase tracking-widest">Command Sub-Unit</p>
-                           </div>
+                           <h4 className="text-2xl font-black uppercase text-slate-800">{lgaName} STATION</h4>
                            <div className="text-right">
-                             <p className="text-2xl font-black text-slate-800 leading-none">{(disp?.totalMales || 0) + (disp?.totalFemales || 0)}</p>
-                             <p className="text-[8px] font-black text-slate-400 uppercase">Total Personnel</p>
+                             <p className="text-xl font-black text-emerald-700">{(disp?.totalMales || 0) + (disp?.totalFemales || 0)}</p>
+                             <p className="text-[7px] font-black text-slate-400 uppercase">Reg. Strength</p>
                            </div>
                         </div>
                         
-                        <div className="space-y-3 mb-6 flex-1">
-                          {disp?.batches && disp.batches.length > 0 ? disp.batches.map((b, bi) => (
-                            <div key={bi} className="flex justify-between items-center p-3 bg-white rounded-xl shadow-sm">
-                               <span className="text-[10px] font-bold text-slate-600 uppercase">{b.batch}</span>
-                               <div className="flex gap-4">
-                                  <span className="text-[9px] font-black text-slate-400">M: {b.males}</span>
-                                  <span className="text-[9px] font-black text-slate-400">F: {b.females}</span>
-                                  <span className="text-[10px] font-black text-[#004d40] ml-2">{b.males + b.females}</span>
-                               </div>
-                            </div>
-                          )) : <p className="text-center py-4 text-[8px] font-black text-slate-300 uppercase">No batch data available.</p>}
-                        </div>
-                        
-                        <div className="pt-4 border-t-2 border-slate-200 flex justify-between items-center">
-                           <div className="flex items-center gap-2">
-                             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                             <span className="text-[10px] font-black text-red-600 uppercase">Total Clearance Defaulters:</span>
+                        <div className="grid grid-cols-2 gap-4 mb-6 pt-4 border-t border-slate-200">
+                           <div className="p-4 bg-white rounded-2xl border shadow-sm">
+                             <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Total Cleared</p>
+                             <p className="text-xl font-black text-emerald-600">{perf.cleared}</p>
                            </div>
-                           <span className="text-lg font-black text-red-600">{defaulterCounts[lgaName] || 0}</span>
+                           <div className="p-4 bg-white rounded-2xl border shadow-sm">
+                             <p className="text-[7px] font-black text-slate-400 uppercase mb-1">Flagged / Defaulters</p>
+                             <p className="text-xl font-black text-red-600">{perf.flagged}</p>
+                           </div>
+                        </div>
+
+                        <div className="space-y-2">
+                           <p className="text-[7px] font-black text-slate-400 uppercase px-1">Population Disposition</p>
+                           {disp?.batches?.map((b, bi) => (
+                             <div key={bi} className="flex justify-between items-center text-[9px] font-bold p-2 bg-slate-200/50 rounded-lg">
+                                <span className="uppercase">{b.batch}</span>
+                                <span className="text-[#004d40]">M: {b.males} | F: {b.females}</span>
+                             </div>
+                           ))}
                         </div>
                      </div>
                    );
@@ -691,38 +659,23 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
           </div>
         )}
 
-        {/* Abscondment Alerts */}
+        {/* Abscondment Risk Warnings */}
         {abscondmentRisks.length > 0 && (
-          <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] border-4 border-red-500 shadow-[0_20px_50px_-12px_rgba(220,38,38,0.2)] animate-official">
+          <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] border-4 border-red-500 shadow-2xl animate-official">
             <div className="flex items-center gap-5 mb-8">
-              <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black shadow-lg">!</div>
-              <div>
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-red-600 leading-none mb-1 font-serif-heading">Abscondment Risk Surveillance</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Immediate Administrative Review Required</p>
-              </div>
+              <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black">!</div>
+              <div><h3 className="text-2xl font-black uppercase text-red-600 leading-none mb-1 font-serif-heading">High Risk Surveillance</h3><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Missed Multiple Clearance Cycles</p></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
               {abscondmentRisks.map((risk: any, idx: number) => (
-                <div key={idx} className={`p-5 rounded-3xl border-2 transition-all hover:scale-105 shadow-sm ${risk.count >= 3 ? 'bg-red-900 border-red-950 text-white' : 'bg-red-50 border-red-200 text-red-900'}`}>
-                  <h4 className="font-black uppercase text-sm mb-1 leading-tight">{risk.name}</h4>
-                  <p className="text-[10px] font-bold uppercase opacity-60 mb-4">{risk.code} • {risk.lga} STATION</p>
-                  
-                  <div className="space-y-3 pt-3 border-t border-black/10">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[8px] font-black uppercase opacity-60">Missed Cycles</span>
-                      <span className="text-sm font-black">{risk.count} / 3</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[8px] font-black uppercase opacity-60">Countdown</span>
-                      <span className={`text-xs font-black px-2 py-1 rounded-lg ${risk.daysRemaining === 0 ? 'bg-white/20 animate-pulse' : 'bg-black/5'}`}>
-                        {risk.daysRemaining === 0 ? 'DUE (ABSCONDED)' : `${risk.daysRemaining} DAYS REMAINING`}
-                      </span>
-                    </div>
+                <div key={idx} className={`p-5 rounded-3xl border-2 transition-all ${risk.count >= 3 ? 'bg-red-900 text-white border-red-950' : 'bg-red-50 text-red-900 border-red-200'}`}>
+                  <h4 className="font-black uppercase text-sm mb-1">{risk.name}</h4>
+                  <p className="text-[10px] font-bold uppercase opacity-60 mb-4">{risk.code} • {risk.lga}</p>
+                  <div className="flex justify-between items-center pt-3 border-t border-black/10">
+                    <div className="text-center"><span className="block text-xs font-black">{risk.count} / 3</span><span className="text-[6px] uppercase opacity-60">Cycles Missed</span></div>
+                    <div className="text-right"><span className="block text-xs font-black">{risk.daysRemaining}</span><span className="text-[6px] uppercase opacity-60">Est. Days to Absconded</span></div>
                   </div>
-                  
-                  <button onClick={() => handlePushToCDR(risk)} className={`w-full mt-5 py-2.5 rounded-xl text-[9px] font-black uppercase transition-all shadow-md ${risk.count >= 3 ? 'bg-white text-red-900 hover:bg-black hover:text-white' : 'bg-red-600 text-white hover:bg-black'}`}>
-                    Initiate Disciplinary Action
-                  </button>
+                  <button onClick={() => handlePushToCDR(risk)} className="w-full mt-4 py-2 bg-black text-white text-[8px] font-black uppercase rounded-lg shadow-lg">Push to Disciplinary Registry</button>
                 </div>
               ))}
             </div>
@@ -730,20 +683,20 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
         )}
 
         <div className="bg-[#004d40] text-white p-8 rounded-[2.5rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-8">
-           <div className="flex items-baseline gap-4">
-             <span className="text-5xl font-black tracking-tighter leading-none">{entries.length}</span>
-             <span className="text-lg font-black uppercase opacity-40 tracking-widest font-serif-heading">Audit Periods</span>
-           </div>
+           <div className="flex items-baseline gap-4"><span className="text-5xl font-black tracking-tighter leading-none">{entries.length}</span><span className="text-lg font-black uppercase opacity-40 tracking-widest font-serif-heading">Audit Entries</span></div>
            <button onClick={() => setIsLedgerOpen(true)} className="px-8 py-4 bg-white text-[#004d40] rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-3 shadow-2xl hover:bg-emerald-50 transition-all"><FileTextIcon /> Audit Action Ledger</button>
         </div>
 
         {entries.map((e: CIMClearance) => (
-          <div key={e.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 flex justify-between items-center shadow-sm hover:shadow-lg transition-all group">
-             <div><h4 className="text-xl font-black uppercase text-slate-800 font-serif-heading tracking-tight">{e.month}</h4><p className="text-[9px] font-black text-emerald-800 tracking-[0.2em]">{e.lga} UNIT AUDIT</p></div>
-             <div className="flex gap-6 items-center">
-               <div className="text-center"><span className="block text-xl font-black text-emerald-600">{e.clearedCount}</span><span className="text-[7px] font-black text-slate-400 uppercase">CLEARED</span></div>
-               <div className="text-center"><span className="block text-xl font-black text-red-600">{e.unclearedList?.length || 0}</span><span className="text-[7px] font-black text-slate-400 uppercase">FLAGGED</span></div>
-               <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-3 text-red-100 group-hover:text-red-400 hover:scale-110 transition-all"><TrashIcon /></button>
+          <div key={e.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 flex flex-col sm:flex-row justify-between items-center shadow-sm hover:shadow-lg transition-all group gap-6">
+             <div><h4 className="text-2xl font-black uppercase text-slate-800 font-serif-heading tracking-tight">{e.month}</h4><p className="text-[10px] font-black text-emerald-800 tracking-[0.2em]">{e.lga} STATION AUDIT</p></div>
+             <div className="flex gap-10 items-center">
+               <div className="text-center"><span className="block text-3xl font-black text-emerald-600">{e.clearedCount}</span><span className="text-[8px] font-black text-slate-400 uppercase">CLEARED SUCCESSFULLY</span></div>
+               <div className="text-center"><span className="block text-3xl font-black text-red-600">{e.unclearedList?.length || 0}</span><span className="text-[8px] font-black text-slate-400 uppercase">FLAGGED DEFAULTERS</span></div>
+               <div className="flex gap-2">
+                 <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="p-3 text-emerald-600 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-all"><DownloadIcon /></button>
+                 <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="p-3 text-red-100 group-hover:text-red-400 hover:scale-110 transition-all"><TrashIcon /></button>
+               </div>
              </div>
           </div>
         ))}
@@ -753,29 +706,28 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
         <div className="fixed inset-0 bg-slate-900/98 backdrop-blur-3xl z-[500] flex items-center justify-center p-4 animate-official">
           <div className="bg-white w-full max-w-6xl rounded-[3.5rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
             <div className="bg-[#004d40] p-10 text-white flex justify-between items-center shrink-0 border-b-8 border-black/10">
-               <h3 className="text-2xl font-black uppercase font-serif-heading tracking-tighter">Comprehensive Audit Ledger</h3>
+               <h3 className="text-2xl font-black uppercase font-serif-heading tracking-tighter">Defaulter Administrative Hub</h3>
                <button onClick={() => setIsLedgerOpen(false)} className="w-14 h-14 bg-white/10 hover:bg-red-600 rounded-2xl flex items-center justify-center transition-all text-xl font-black">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-10 custom-scrollbar">
                <table className="w-full border-separate border-spacing-y-4">
-                  <thead><tr className="text-[10px] font-black uppercase text-slate-400 text-left"><th className="px-8 pb-4">Personnel Details</th><th className="px-8 pb-4">Unit Context</th><th className="px-8 pb-4">Administrative Action Logs</th></tr></thead>
+                  <thead><tr className="text-[10px] font-black uppercase text-slate-400 text-left"><th className="px-8 pb-4">Personnel Information</th><th className="px-8 pb-4">Audit Source</th><th className="px-8 pb-4">Officer Logs & Escalation</th></tr></thead>
                   <tbody>
                     {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, parentId: entry.id }))], []).map((cm: any, idx: number) => (
                       <tr key={idx} className="bg-slate-50 hover:bg-white rounded-3xl transition-all shadow-sm">
-                        <td className="px-8 py-8 rounded-l-[2rem]">
+                        <td className="px-8 py-8 rounded-l-[3rem]">
                           <p className="font-black uppercase text-slate-800 text-base mb-1">{cm.name}</p>
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cm.code}</p>
                           {cm.logs && cm.logs.length > 0 && (
                             <div className="mt-4 space-y-2 border-t pt-3 border-slate-200">
-                               <p className="text-[8px] font-black text-slate-400 uppercase mb-2">History:</p>
                                {cm.logs.map((log: CIMDefaulterLog, lidx: number) => (
-                                 <div key={lidx} className="flex items-center gap-3 text-[9px] font-bold text-emerald-800 bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/50">
+                                 <div key={lidx} className="flex items-center gap-3 text-[9px] font-bold text-emerald-800 bg-emerald-50/50 p-2 rounded-lg">
                                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
                                     <span>{log.action}</span>
                                     <span className="opacity-30">•</span>
                                     <span className="text-slate-400 uppercase">{new Date(log.timestamp).toLocaleDateString()}</span>
                                     <span className="opacity-30">•</span>
-                                    <span className="text-slate-400 uppercase">By {log.role}</span>
+                                    <span className="text-slate-400 uppercase">Officer: {log.role}</span>
                                  </div>
                                ))}
                             </div>
@@ -784,13 +736,9 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: { entrie
                         <td className="px-8 py-8">
                           <span className="px-4 py-2 bg-emerald-50 text-emerald-800 rounded-full text-[9px] font-black uppercase border border-emerald-100">{cm.lga} / {cm.month}</span>
                         </td>
-                        <td className="px-8 py-8 rounded-r-[2rem]">
+                        <td className="px-8 py-8 rounded-r-[3rem]">
                            <div className="flex flex-wrap gap-3">
-                             <button 
-                               onClick={() => handleIssueQuery(cm)} 
-                               disabled={isGenerating}
-                               className="px-6 py-2.5 bg-[#004d40] text-white text-[9px] font-black uppercase rounded-xl shadow-lg hover:bg-black transition-all disabled:opacity-50"
-                             >
+                             <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-6 py-2.5 bg-[#004d40] text-white text-[9px] font-black uppercase rounded-xl shadow-lg hover:bg-black transition-all disabled:opacity-50">
                                {isGenerating ? 'Processing...' : 'Issue Formal Query'}
                              </button>
                              <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC CIM FLAG: Member ${cm.name} (${cm.code}) missed biometric clearance at ${cm.lga} Unit.`)}`)} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl"><WhatsAppIcon /></button>
@@ -853,15 +801,15 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
             <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <input required placeholder="PPA" className="w-full p-4 bg-slate-50 rounded-xl font-bold uppercase border text-xs" value={formData.ppa} onChange={e => setFormData({...formData, ppa: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 rounded-xl font-medium border h-24 text-xs" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: (e.target as HTMLTextAreaElement).value})} />
-            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log CD&R Case</button>
+            <button className="w-full bg-[#004d40] text-white p-5 rounded-xl font-black uppercase shadow-2xl hover:bg-black transition-all text-[9px] border-b-4 border-emerald-950">Log Case</button>
           </form>
         </div>
       </div>
       <div className="flex-1 space-y-8">
         {entries.map((cm: CDRCase) => (
-          <div key={cm.id} className="bg-white p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all relative border border-slate-100 group animate-official">
-             <div className="absolute top-8 right-8 flex items-center gap-4 no-print">
-                <span className={`px-4 py-1.5 rounded-full text-[8px] font-black uppercase border tracking-widest ${
+          <div key={cm.id} className="bg-white p-10 rounded-[3.5rem] shadow-sm hover:shadow-2xl transition-all relative border border-slate-100 group animate-official">
+             <div className="absolute top-10 right-10 flex items-center gap-4 no-print">
+                <span className={`px-4 py-2 rounded-full text-[9px] font-black uppercase border tracking-widest ${
                   cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
                   cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                   cm.status === 'Forwarded_to_ZI' ? 'bg-blue-50 text-blue-600 border-blue-100' :
@@ -869,36 +817,36 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                 }`}>{cm.status?.replace(/_/g, ' ') || 'Pending'}</span>
                 <button onClick={() => deleteData(db, "cdr_cases", cm.id)} className="text-red-200 hover:text-red-600 transition-all"><TrashIcon /></button>
              </div>
-             <div className="mb-8"><h4 className="text-xl sm:text-2xl font-black uppercase font-serif-heading tracking-tighter text-slate-800 leading-none mb-1">{cm.name}</h4><p className="text-base font-black text-emerald-800 uppercase tracking-widest">{cm.stateCode}</p></div>
+             <div className="mb-8"><h4 className="text-3xl font-black uppercase font-serif-heading tracking-tighter text-slate-800 leading-none mb-2">{cm.name}</h4><p className="text-lg font-black text-emerald-800 uppercase tracking-widest">{cm.stateCode}</p></div>
              
-             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 mb-8 shadow-inner">
-                <p className="text-[9px] font-black text-slate-400 uppercase mb-4 flex items-center gap-3"><FileTextIcon /> Incident parameters</p>
-                <p className="text-slate-600 text-sm font-medium leading-relaxed italic border-l-4 border-emerald-700 pl-4">"{cm.misconduct}"</p>
-                {cm.ppa && <p className="mt-4 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">PPA: {cm.ppa}</p>}
+             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 mb-8 shadow-inner">
+                <p className="text-[10px] font-black text-slate-400 uppercase mb-4 flex items-center gap-3"><FileTextIcon /> Incident parameters</p>
+                <p className="text-slate-700 text-base font-medium leading-relaxed italic border-l-4 border-[#004d40] pl-6">"{cm.misconduct}"</p>
+                {cm.ppa && <p className="mt-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">STATIONED AT: {cm.ppa} ({cm.lga} STATION)</p>}
              </div>
 
              {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded') && (
-               <div className="p-8 bg-blue-50/20 rounded-[2.5rem] border border-blue-100/50 mb-8 animate-official">
-                  <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest mb-6">LGI Administrative Minute</p>
+               <div className="p-8 bg-blue-50/20 rounded-[3rem] border border-blue-100/50 mb-8 animate-official">
+                  <p className="text-[10px] font-black text-blue-800 uppercase tracking-widest mb-6">Local Inspector Desk Minute</p>
                   <div className="space-y-6">
                     <div>
-                      <label className="text-[9px] font-black text-slate-400 uppercase block mb-2">Upload CM Response (Image)</label>
+                      <label className="text-[10px] font-black text-slate-400 uppercase block mb-3">Upload Personnel Response (Image)</label>
                       <input type="file" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} className="text-xs" />
-                      {cm.responseImage && <div className="mt-4 w-20 h-20 rounded-2xl border-4 border-white shadow-xl overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
+                      {cm.responseImage && <div className="mt-6 w-32 h-32 rounded-[2rem] border-8 border-white shadow-2xl overflow-hidden"><img src={cm.responseImage} className="w-full h-full object-cover" /></div>}
                     </div>
-                    <textarea className="w-full p-5 bg-white rounded-2xl border border-blue-50 outline-none text-xs h-24" placeholder="Enter administrative minute..." defaultValue={cm.lgiMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', (e.target as HTMLTextAreaElement).value)} />
-                    <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-black transition-all">Escalate to ZI Office</button>
+                    <textarea className="w-full p-6 bg-white rounded-3xl border border-blue-100 outline-none text-sm h-32" placeholder="Record administrative minute..." defaultValue={cm.lgiMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', (e.target as HTMLTextAreaElement).value)} />
+                    <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-5 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase shadow-2xl hover:bg-black transition-all">Submit Case to ZI Office</button>
                   </div>
                </div>
              )}
 
-             <div className="flex flex-col xs:flex-row justify-between items-center border-t-2 border-slate-50 pt-8 no-print gap-6">
-                <div className="flex flex-wrap gap-3 w-full xs:w-auto">
-                   <select onChange={(e) => handleStatusUpdate(cm.id, (e.target as HTMLSelectElement).value as CDRStatus)} className="flex-1 xs:flex-none px-6 py-3 bg-slate-100 rounded-xl text-[9px] font-black uppercase outline-none border shadow-inner cursor-pointer" value={cm.status}><option value="Pending">Pending</option><option value="Responded">Responded</option><option value="Forwarded_to_ZI">ZI Desk</option><option value="Minuted_to_CIM">CIM Desk</option>{userRole === 'ZI' && <option value="Forwarded_to_CDR">Closed</option>}</select>
+             <div className="flex flex-col xs:flex-row justify-between items-center border-t-2 border-slate-50 pt-10 no-print gap-6">
+                <div className="flex flex-wrap gap-4 w-full xs:w-auto">
+                   <select onChange={(e) => handleStatusUpdate(cm.id, (e.target as HTMLSelectElement).value as CDRStatus)} className="flex-1 xs:flex-none px-8 py-4 bg-white border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase outline-none shadow-sm cursor-pointer" value={cm.status}><option value="Pending">Pending</option><option value="Responded">Responded</option><option value="Forwarded_to_ZI">ZI Desk</option><option value="Minuted_to_CIM">CIM Desk</option>{userRole === 'ZI' && <option value="Forwarded_to_CDR">Case Closed</option>}</select>
                 </div>
-                <div className="flex gap-4 ml-auto">
-                   <button onClick={() => generateOfficialPDF(cm, 'LEDGER')} className="w-12 h-12 bg-white text-slate-400 rounded-xl flex items-center justify-center hover:text-[#004d40] transition-all shadow-md border"><DownloadIcon /></button>
-                   <button className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-xl flex items-center justify-center hover:scale-110 transition-all shadow-md border" onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA CD&R: Member ${cm.name} (${cm.stateCode}) status updated to ${cm.status} in ${cm.lga}.`)}`)}><WhatsAppIcon /></button>
+                <div className="flex gap-5 ml-auto">
+                   <button onClick={() => generateOfficialPDF(cm, 'CDR_CASE')} className="w-14 h-14 bg-white text-slate-400 rounded-2xl flex items-center justify-center hover:text-[#004d40] transition-all shadow-xl border-2 border-slate-50"><DownloadIcon /></button>
+                   <button className="w-14 h-14 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center hover:scale-110 transition-all shadow-xl border-2 border-emerald-100" onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`NYSC DAURA CD&R: Member ${cm.name} (${cm.stateCode}) status updated to ${cm.status} in ${cm.lga}.`)}`)}><WhatsAppIcon /></button>
                 </div>
              </div>
           </div>
