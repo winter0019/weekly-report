@@ -47,7 +47,7 @@ const SECURITY_PINS: Record<string, string> = {
 };
 
 const DIVISION_LABELS: Record<Division, string> = {
-  'CWHS': 'CW&HS', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CD', 'SAED': 'SAED'
+  'CWHS': 'CW&HS', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CDS', 'SAED': 'SAED'
 };
 
 const fileToBase64 = (file: File): Promise<string> => {
