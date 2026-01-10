@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ReportCategory, 
@@ -116,7 +117,7 @@ const App: React.FC = () => {
       if (userRole === 'LGI') filtered = filtered.filter(i => i.lga === lgaContext);
       return filtered.filter(item => {
         if (!q) return true;
-        return [item.name, item.cmName, item.groupName, item.stateCode, item.lga, (item as any).ppa]
+        return [item.name, item.cmName, item.groupName, item.projectName, item.stateCode, item.lga, (item as any).ppa]
           .some(s => String(s || '').toLowerCase().includes(q));
       });
     };
@@ -810,40 +811,107 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
 
 /* --- CDS Module --- */
 const CDSModule = ({ groups, projects, lga, db }: any) => {
+  const [view, setView] = useState<'UNITS' | 'PROJECTS'>('UNITS');
   const [groupForm, setGroupForm] = useState({ groupName: '', meetingDay: 'Wednesday' });
+  const [projectForm, setProjectForm] = useState({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' as const });
+
   return (
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex justify-between items-center mb-3">
-             <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Register CDS Unit</h3>
-             <button onClick={() => downloadCSV(groups, "CDS_Groups")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          <div className="flex bg-slate-50 p-1 rounded-md mb-4 border border-slate-100">
+             <button onClick={() => setView('UNITS')} className={`flex-1 py-1.5 rounded text-[8px] font-black uppercase transition-all ${view === 'UNITS' ? 'bg-[#004d40] text-white' : 'text-slate-400'}`}>Units</button>
+             <button onClick={() => setView('PROJECTS')} className={`flex-1 py-1.5 rounded text-[8px] font-black uppercase transition-all ${view === 'PROJECTS' ? 'bg-[#004d40] text-white' : 'text-slate-400'}`}>Projects</button>
           </div>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:'',meetingDay:'Wednesday'}); }} className="space-y-2">
-            <input required placeholder="UNIT NAME" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
-            <select className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
-              <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option>
-            </select>
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm"><PlusIcon /> Initialize Unit</button>
-          </form>
+
+          {view === 'UNITS' ? (
+            <div className="animate-official">
+              <div className="flex justify-between items-center mb-3">
+                 <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Register CDS Unit</h3>
+                 <button onClick={() => downloadCSV(groups, "CDS_Groups")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+              </div>
+              <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:'',meetingDay:'Wednesday'}); }} className="space-y-2">
+                <input required placeholder="UNIT NAME" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
+                <select className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
+                  <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option>
+                </select>
+                <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm"><PlusIcon /> Initialize Unit</button>
+              </form>
+            </div>
+          ) : (
+            <div className="animate-official">
+              <div className="flex justify-between items-center mb-3">
+                 <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Register CM Project</h3>
+                 <button onClick={() => downloadCSV(projects, "Personal_CDS_Projects")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+              </div>
+              <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:'',status:'Ongoing'}); }} className="space-y-2">
+                <input required placeholder="CORPS MEMBER NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
+                <input required placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: e.target.value.toUpperCase()})} />
+                <input required placeholder="PROJECT TITLE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
+                <textarea required placeholder="PROJECT DESCRIPTION..." className="w-full p-2 bg-slate-50 rounded border h-20 text-[10px] outline-none" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: e.target.value})} />
+                <select className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.status} onChange={e => setProjectForm({...projectForm, status: e.target.value as any})}>
+                  <option value="Ongoing">Status: Ongoing</option>
+                  <option value="Completed">Status: Completed</option>
+                </select>
+                <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm"><PlusIcon /> Register Project</button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 content-start">
-        {groups.map((g: any) => (
-          <div key={g.id} className="bg-white p-3 rounded border border-slate-200 relative group animate-official shadow-sm overflow-hidden h-fit">
-            <div className="absolute left-0 top-0 w-1 h-full bg-[#004d40]"></div>
-            <h4 className="text-[11px] font-black uppercase text-slate-800 leading-tight pl-2">{g.groupName}</h4>
-            <div className="flex items-center gap-2 text-[7px] font-bold text-emerald-800 tracking-wider uppercase pl-2 mt-1.5">
-              <span className="bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{g.meetingDay}</span>
-              <span className="text-slate-300">Command: {g.lga}</span>
-            </div>
-            <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={() => shareData(`CDS Unit: ${g.groupName}`, `Meeting Day: ${g.meetingDay}`)} className="text-blue-500 scale-75 hover:scale-90 transition-transform"><ShareIcon /></button>
-              <button onClick={() => deleteData(db, "cds_groups", g.id)} className="text-red-500 scale-75 hover:scale-90 transition-transform"><TrashIcon /></button>
-            </div>
+
+      <div className="flex-1">
+        {view === 'UNITS' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 content-start animate-official">
+            {groups.map((g: any) => (
+              <div key={g.id} className="bg-white p-3 rounded border border-slate-200 relative group shadow-sm overflow-hidden h-fit">
+                <div className="absolute left-0 top-0 w-1 h-full bg-[#004d40]"></div>
+                <h4 className="text-[11px] font-black uppercase text-slate-800 leading-tight pl-2">{g.groupName}</h4>
+                <div className="flex items-center gap-2 text-[7px] font-bold text-emerald-800 tracking-wider uppercase pl-2 mt-1.5">
+                  <span className="bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{g.meetingDay}</span>
+                  <span className="text-slate-300">Command: {g.lga}</span>
+                </div>
+                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => shareData(`CDS Unit: ${g.groupName}`, `Meeting Day: ${g.meetingDay}`)} className="text-blue-500 scale-75 hover:scale-90 transition-transform"><ShareIcon /></button>
+                  <button onClick={() => deleteData(db, "cds_groups", g.id)} className="text-red-500 scale-75 hover:scale-90 transition-transform"><TrashIcon /></button>
+                </div>
+              </div>
+            ))}
+            {groups.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">No records found.</p>}
           </div>
-        ))}
-        {groups.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">No records found.</p>}
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start animate-official">
+            {projects.map((p: CDSPersonalProject) => (
+              <div key={p.id} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm relative group overflow-hidden h-fit">
+                <div className={`absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rotate-45 opacity-10 ${p.status === 'Completed' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                <div className="flex justify-between items-start mb-3">
+                   <div>
+                      <span className={`inline-block px-2 py-0.5 rounded-[4px] text-[7px] font-black uppercase tracking-widest border mb-2 ${
+                        p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                      }`}>{p.status}</span>
+                      <h4 className="text-[13px] font-black uppercase text-slate-800 leading-tight">{p.projectName}</h4>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">By: {p.cmName} ({p.stateCode})</p>
+                   </div>
+                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
+                      <button onClick={() => shareData(`Project: ${p.projectName}`, `${p.cmName}: ${p.description}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><ShareIcon /></button>
+                      <button onClick={() => deleteData(db, "cds_projects", p.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><TrashIcon /></button>
+                   </div>
+                </div>
+                <div className="p-3 bg-slate-50 rounded border border-slate-100 text-[10px] text-slate-600 leading-relaxed italic mb-3">
+                   "{p.description}"
+                </div>
+                <div className="flex justify-between items-center text-[7px] font-black uppercase tracking-widest text-slate-300">
+                   <span>Station: {p.lga}</span>
+                   <span>Filed: {new Date(p.dateAdded).toLocaleDateString()}</span>
+                </div>
+                <div className="absolute bottom-2 right-2 no-print opacity-0 group-hover:opacity-100">
+                   <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`CDS Project Update: ${p.projectName} by ${p.cmName} is currently ${p.status}.`)}`)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><WhatsAppIcon /></button>
+                </div>
+              </div>
+            ))}
+            {projects.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">No personal projects registered.</p>}
+          </div>
+        )}
       </div>
     </>
   );
