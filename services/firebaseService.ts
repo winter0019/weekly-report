@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, FirebaseApp, getApp } from "firebase/app";
 import { 
   initializeFirestore, 
@@ -32,20 +33,16 @@ export const initFirebase = (config: any): Firestore => {
     }
     
     if (!dbInstance) {
-      // Use initializeFirestore with experimentalForceLongPolling to bypass WebSocket blocking issues
-      // which is the common cause for the 10s timeout error.
       dbInstance = initializeFirestore(app, {
         experimentalForceLongPolling: true,
+        useFetchStreams: false // More robust for high-latency connections
       });
 
-      // Enable offline persistence for better resilience
       enableIndexedDbPersistence(dbInstance).catch((err) => {
         if (err.code === 'failed-precondition') {
-          // Multiple tabs open, persistence can only be enabled in one tab at a time.
-          console.warn("Firestore Persistence: Failed precondition (multiple tabs).");
+          console.warn("Firestore Persistence: Failed (multiple tabs).");
         } else if (err.code === 'unimplemented') {
-          // The current browser doesn't support all of the features needed to enable persistence
-          console.warn("Firestore Persistence: Unimplemented in this browser.");
+          console.warn("Firestore Persistence: Unimplemented.");
         }
       });
     }
@@ -89,17 +86,16 @@ export const subscribeToCollection = (
       }));
       onUpdate(data);
     }, (error) => {
-      // Log but don't crash, Firestore will automatically retry
-      console.error(`Subscription error (${collectionName}):`, error);
+      console.warn(`Subscription error (${collectionName}):`, error.message);
     });
   } catch (err) {
-    console.error(`Failed to setup listener for ${collectionName}:`, err);
+    console.error(`Listener failed for ${collectionName}:`, err);
     return () => {};
   }
 };
 
 export const addData = async (database: Firestore | null, collectionName: string, data: any) => {
-  if (!database) throw new Error("Database service is offline.");
+  if (!database) throw new Error("Database offline.");
   const cleanData = sanitizeData(data);
   return await addDoc(collection(database, collectionName), {
     ...cleanData,
@@ -109,13 +105,13 @@ export const addData = async (database: Firestore | null, collectionName: string
 };
 
 export const updateData = async (database: Firestore | null, collectionName: string, id: string, data: any) => {
-  if (!database) throw new Error("Database service is offline.");
+  if (!database) throw new Error("Database offline.");
   const ref = doc(database, collectionName, id);
   const cleanData = sanitizeData(data);
   return await updateDoc(ref, { ...cleanData, _lastModified: serverTimestamp() });
 };
 
 export const deleteData = async (database: Firestore | null, collectionName: string, id: string) => {
-  if (!database) throw new Error("Database service is offline.");
+  if (!database) throw new Error("Database offline.");
   return await deleteDoc(doc(database, collectionName, id));
 };
