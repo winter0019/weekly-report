@@ -100,7 +100,7 @@ export interface CDSPersonalProject {
   dateAdded: string;
 }
 
-export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_to_CIM' | 'Forwarded_to_CDR';
+export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_to_CIM' | 'Forwarded_to_CDR' | 'Minuted_back_to_LGI';
 
 export interface CDRCase {
   id: string;

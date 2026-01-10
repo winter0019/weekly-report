@@ -111,7 +111,6 @@ const App: React.FC = () => {
     const filterFn = (items: any[]) => {
       let filtered = items;
       if (userRole === 'LGI') filtered = filtered.filter(i => i.lga === lgaContext);
-      // For ZI, we don't automatically filter unless specified by a search or logic.
       return filtered.filter(item => {
         if (!q) return true;
         return [item.name, item.cmName, item.groupName, item.stateCode, item.lga, (item as any).ppa]
@@ -180,7 +179,7 @@ const App: React.FC = () => {
             <div className="w-8 h-8 bg-white/10 rounded flex items-center justify-center border border-white/10"><DashboardIcon /></div>
             <div>
               <h1 className="text-xs font-black uppercase tracking-tight font-serif-heading">NYSC DAURA COMMAND</h1>
-              <p className="text-[7px] font-bold text-emerald-300 tracking-wider uppercase opacity-50">Secretariat Portal</p>
+              <p className="text-[7px] font-bold text-emerald-300 tracking-wider uppercase opacity-50">Secretariat Portal Hub</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -200,7 +199,7 @@ const App: React.FC = () => {
           {!isDbLoaded ? (
             <div className="w-full flex flex-col items-center justify-center py-16 gap-3">
               <div className="w-6 h-6 border-2 border-slate-200 border-t-[#004d40] rounded-full animate-spin"></div>
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-[8px]">Syncing Data...</p>
+              <p className="text-slate-400 font-bold uppercase tracking-widest text-[8px]">Syncing Terminal...</p>
             </div>
           ) : (
             <>
@@ -222,7 +221,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
   const [formData, setFormData] = useState({ month: '' });
   const [clearedBatches, setClearedBatches] = useState<CIMBatchDisposition[]>([]);
   const [newClearedBatch, setNewClearedBatch] = useState({ batch: '', males: 0, females: 0 });
-  const [unclearedInput, setUnclearedInput] = useState({ name: '', code: '', reason: '', ppa: '' });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string, ppa?: string}[]>([]);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -277,7 +275,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     return { totalCleared, totalDefaulters, uniqueLgas };
   }, [entries]);
 
-  // Render for Zonal Inspector
   if (userRole === 'ZI') {
     return (
       <div className="w-full flex flex-col gap-5 animate-official">
@@ -291,22 +288,21 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
             <span className="text-3xl font-black text-red-600 font-serif-heading">{aggregates.totalDefaulters.toLocaleString()}</span>
           </div>
           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Participating Stations</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Stations Participated</span>
             <span className="text-3xl font-black text-[#004d40] font-serif-heading">{aggregates.uniqueLgas} / {LGAS.length}</span>
           </div>
         </div>
-
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-[#004d40] p-3 text-white flex justify-between items-center">
              <h3 className="text-[11px] font-bold uppercase tracking-widest">Global Audit Summary Table</h3>
-             <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold uppercase border border-white/20">Biometric Action Ledger</button>
+             <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold uppercase border border-white/20">Biometric Ledger</button>
           </div>
           <div className="overflow-auto custom-scrollbar">
             <table className="w-full border-collapse">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr className="text-[9px] font-bold uppercase text-slate-400 text-left">
                   <th className="p-3">Station/LGA</th>
-                  <th className="p-3">Latest Audit Period</th>
+                  <th className="p-3">Latest Month</th>
                   <th className="p-3 text-center">Cleared</th>
                   <th className="p-3 text-center">Defaulters</th>
                   <th className="p-3 text-right">Actions</th>
@@ -318,7 +314,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                   if (lgaEntries.length === 0) return (
                     <tr key={lgaName} className="hover:bg-slate-50 opacity-40">
                       <td className="p-3 font-bold text-slate-700">{lgaName}</td>
-                      <td className="p-3 text-xs italic">No audit records found</td>
+                      <td className="p-3 text-xs italic">N/A</td>
                       <td className="p-3 text-center">0</td>
                       <td className="p-3 text-center">0</td>
                       <td className="p-3 text-right">---</td>
@@ -332,9 +328,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                       <td className="p-3 text-center font-black text-emerald-600">{latest.clearedCount}</td>
                       <td className="p-3 text-center font-black text-red-600">{latest.unclearedList?.length || 0}</td>
                       <td className="p-3 text-right">
-                        <div className="flex justify-end gap-1.5">
-                          <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
-                        </div>
+                        <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
                       </td>
                     </tr>
                   );
@@ -364,7 +358,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                             <td className="py-2"><span className="px-2 py-0.5 bg-white text-slate-400 rounded text-[8px] font-bold uppercase border border-slate-200">{cm.ppa || cm.lga}</span></td>
                             <td className="py-2 text-right">
                                <div className="flex items-center justify-end gap-1.5">
-                                 <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50">Issue Query</button>
+                                 <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50">Query</button>
                                  <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
                                </div>
                             </td>
@@ -380,7 +374,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     );
   }
 
-  // Render for Local Government Inspector (Original Functionality)
   return (
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
@@ -404,7 +397,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
           </div>
           <button onClick={handleSaveStationDisposition} className="w-full mt-2 bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Update Dispositions</button>
         </div>
-
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
           <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Submit Monthly Audit</h3>
           <form onSubmit={handleSubmit} className="space-y-2">
@@ -424,7 +416,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
           </form>
         </div>
       </div>
-
       <div className="flex-1 space-y-3">
         <div className="bg-[#004d40] p-4 rounded-lg text-white shadow animate-official flex justify-between items-center">
            <div>
@@ -433,7 +424,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
            </div>
            <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white text-[#004d40] rounded text-[8px] font-bold uppercase shadow-sm">Station Ledger</button>
         </div>
-
         <div className="space-y-2">
           {entries.map((e: CIMClearance) => (
             <div key={e.id} className="bg-white p-3 rounded border border-slate-200 flex justify-between items-center hover:bg-slate-50 transition-all group">
@@ -459,7 +449,6 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
           ))}
         </div>
       </div>
-
       {isLedgerOpen && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-lg shadow-2xl flex flex-col h-[75vh]">
@@ -500,6 +489,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
 const CDRModule = ({ entries, lga, db, userRole }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
   const [isUploading, setIsUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -548,7 +538,9 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                   cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
                   cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
                   cm.status === 'Forwarded_to_ZI' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                  cm.status === 'Minuted_to_CIM' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-900 text-white'
+                  cm.status === 'Minuted_to_CIM' ? 'bg-red-50 text-red-600 border-red-100' : 
+                  cm.status === 'Minuted_back_to_LGI' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                  'bg-slate-900 text-white'
                 }`}>{cm.status?.replace(/_/g, ' ') || 'Pending'}</span>
                 <button onClick={() => deleteData(db, "cdr_cases", cm.id)} className="text-slate-200 hover:text-red-500 transition-colors scale-75"><TrashIcon /></button>
              </div>
@@ -563,16 +555,31 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                 {cm.ppa && <p className="mt-2 text-[7px] font-bold text-slate-400 uppercase tracking-widest pl-2">Station: {cm.ppa} • {cm.lga}</p>}
              </div>
 
+             {/* DOSSIER REVIEW (Images/Assets) */}
+             {(cm.responseImage || (cm.evidenceDocuments && cm.evidenceDocuments.length > 0)) && (
+               <div className="mb-3 p-3 bg-slate-50 rounded border border-slate-200">
+                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Case Dossier Review</p>
+                 <div className="flex flex-wrap gap-2">
+                   {cm.responseImage && (
+                     <button onClick={() => setPreviewImage(cm.responseImage!)} className="px-3 py-1 bg-white border rounded text-[8px] font-bold uppercase shadow-sm hover:bg-slate-100">View Written Response</button>
+                   )}
+                   {cm.evidenceDocuments?.map((doc, i) => (
+                     <button key={i} onClick={() => setPreviewImage(doc)} className="px-3 py-1 bg-white border rounded text-[8px] font-bold uppercase shadow-sm hover:bg-slate-100">Evidence Doc #{i+1}</button>
+                   ))}
+                 </div>
+               </div>
+             )}
+
              {(cm.lgiMinute || cm.ziMinute) && (
                 <div className="mb-3 pl-4 border-l border-slate-100 space-y-3">
                    {cm.lgiMinute && (
                       <div className="bg-blue-50/30 p-2.5 rounded border border-blue-50">
-                         <p className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">LGI Finding:</p>
+                         <p className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">LGI Recommendation:</p>
                          <p className="text-[10px] text-slate-600 leading-normal italic">"{cm.lgiMinute}"</p>
                       </div>
                    )}
                    {cm.ziMinute && (
-                      <div className="bg-emerald-50/30 p-2.5 rounded border border-emerald-50">
+                      <div className="bg-emerald-50/30 p-2.5 rounded border border-emerald-100">
                          <p className="text-[8px] font-bold text-emerald-800 uppercase mb-0.5">ZI Directive:</p>
                          <p className="text-[10px] text-slate-600 leading-normal italic">"{cm.ziMinute}"</p>
                       </div>
@@ -580,34 +587,35 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                 </div>
              )}
 
-             {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded') && (
+             {/* INVESTIGATIVE ACTIONS (LGI) */}
+             {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded' || cm.status === 'Minuted_back_to_LGI') && (
                <div className="p-3 bg-blue-50/10 rounded border border-blue-100 mb-3 animate-official">
-                  <p className="text-[8px] font-black text-blue-800 uppercase tracking-widest mb-3">Investigation Desk (LGI)</p>
-                  
+                  <p className="text-[8px] font-black text-blue-800 uppercase tracking-widest mb-3">Investigation Hub (LGI)</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
                     <div className="p-2.5 bg-white rounded border border-blue-50 shadow-sm">
                       <p className="text-[7px] font-bold text-slate-400 uppercase mb-1.5">A. Response Upload</p>
                       <input type="file" className="text-[8px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[8px] file:font-bold file:bg-blue-50 file:text-blue-700 w-full" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} />
-                      {cm.responseImage && <p className="text-[7px] font-black text-emerald-600 mt-1 uppercase">✓ Response Logged</p>}
                     </div>
                     <div className="p-2.5 bg-white rounded border border-blue-50 shadow-sm">
                       <p className="text-[7px] font-bold text-slate-400 uppercase mb-1.5">B. Supporting Evidence</p>
                       <input type="file" multiple className="text-[8px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[8px] file:font-bold file:bg-emerald-50 file:text-emerald-700 w-full" onChange={(e) => handleFileUpload(cm.id, 'evidenceDocuments', e.target.files)} />
-                      {cm.evidenceDocuments && cm.evidenceDocuments.length > 0 && <p className="text-[7px] font-black text-emerald-600 mt-1 uppercase">✓ {cm.evidenceDocuments.length} Evidence Docs</p>}
                     </div>
                   </div>
-
                   <textarea className="w-full p-2.5 bg-white rounded border border-blue-100 text-[10px] h-20 outline-none focus:ring-1 focus:ring-blue-500 mb-2 leading-relaxed" placeholder="Detailed minute for ZI review..." defaultValue={cm.lgiMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)} />
-                  <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-2 bg-blue-600 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-blue-900 shadow-sm">Minute to Zonal Inspector</button>
+                  <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-2 bg-blue-600 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-blue-900 shadow-sm">Forward to Zonal Inspector</button>
                </div>
              )}
 
+             {/* DIRECTIVE DESK (ZI) */}
              {userRole === 'ZI' && cm.status === 'Forwarded_to_ZI' && (
                <div className="p-3 bg-emerald-50/20 rounded border border-emerald-100 mb-3 animate-official">
                   <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest mb-2">Final Directive (ZI)</p>
                   <textarea className="w-full p-2.5 bg-white rounded border border-emerald-100 text-[10px] h-20 outline-none focus:ring-1 focus:ring-emerald-500 mb-2 leading-relaxed" placeholder="Formal HQ directive..." defaultValue={cm.ziMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')} className="py-2 bg-emerald-700 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-emerald-950 shadow-sm">Minute to CIM</button>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')} className="py-2 bg-emerald-700 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-emerald-950 shadow-sm">Minute to CIM</button>
+                      <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_back_to_LGI')} className="py-2 bg-yellow-600 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-yellow-800 shadow-sm">Minute back to LGI</button>
+                    </div>
                     <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_CDR')} className="py-2 bg-slate-900 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-black shadow-sm">Close Record</button>
                   </div>
                </div>
@@ -620,6 +628,16 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
           </div>
         ))}
       </div>
+
+      {/* LIGHTBOX PREVIEW */}
+      {previewImage && (
+        <div className="fixed inset-0 bg-slate-950/90 z-[3000] flex items-center justify-center p-4 animate-official" onClick={() => setPreviewImage(null)}>
+          <div className="max-w-4xl w-full max-h-[90vh] flex flex-col items-center gap-4">
+             <img src={previewImage} className="max-w-full max-h-full rounded shadow-2xl border-4 border-white/10 object-contain" alt="Dossier Asset" />
+             <button className="px-6 py-2 bg-white text-black font-bold uppercase text-[10px] rounded shadow-lg">Close Preview</button>
+          </div>
+        </div>
+      )}
     </>
   );
 };
