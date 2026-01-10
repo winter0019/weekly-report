@@ -64,6 +64,7 @@ export interface CIMClearance {
     name: string; 
     code: string; 
     reason: string;
+    ppa?: string;
     logs?: CIMDefaulterLog[];
   }[];
   batchClearance: CIMBatchDisposition[];
@@ -116,6 +117,7 @@ export interface CDRCase {
   ziMinute?: string;
   responseImage?: string; // Base64 string
   evidenceDocuments?: string[]; // Array of Base64 strings
+  month?: string; // Month for query context
 }
 
 export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED';

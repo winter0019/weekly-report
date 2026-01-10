@@ -89,30 +89,61 @@ export const generateOfficialPDF = (data: any, type: string) => {
   } else if (type === 'DISCIPLINARY_QUERY') {
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
-    doc.text(`Ref: NYSC/KTS/DZ/ADM/Q/${Date.now().toString().slice(-6)}`, 15, 75);
+    const refNum = `REF: NYSC/KTS/DZ/ADM/Q/${data.id ? data.id.substring(0, 6).toUpperCase() : Math.floor(100000 + Math.random() * 900000)}`;
+    doc.text(refNum, 15, 75);
     
-    doc.text("To:", 15, 85);
+    // Address Block
+    let y = 85;
+    doc.text("TO:", 15, y);
     doc.setFont("helvetica", "normal");
-    doc.text(String(data.name).toUpperCase(), 30, 85);
-    doc.text(String(data.code).toUpperCase(), 30, 90);
-    doc.text(`${data.lga} Zonal Command`, 30, 95);
-
+    doc.text(String(data.name).toUpperCase(), 35, y);
+    
+    y += 7;
     doc.setFont("helvetica", "bold");
-    const subject = "INTERNAL MEMORANDUM: QUERY FOR BIOMETRIC CLEARANCE DEFAULT";
-    doc.text(subject, pageWidth / 2, 110, { align: "center" });
-    doc.line(30, 112, pageWidth - 30, 112);
-
+    doc.text("State Code:", 15, y);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    const letterBody = data.letterText || "Formal query regarding your absence from the monthly biometric clearance exercise.";
+    doc.text(String(data.code || data.stateCode).toUpperCase(), 40, y);
+    
+    y += 7;
+    doc.setFont("helvetica", "bold");
+    doc.text("PPA:", 15, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(data.ppa || 'NOT RECORDED').toUpperCase(), 30, y);
+    
+    y += 7;
+    doc.setFont("helvetica", "bold");
+    doc.text("LGA:", 15, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${data.lga}`, 30, y);
+    
+    y += 7;
+    doc.setFont("helvetica", "normal");
+    doc.text(`Daura Zone`, 15, y);
+
+    // Subject Line
+    y += 15;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    const auditMonth = data.month || "CURRENT MONTH";
+    const subject = `QUERY FOR BIOMETRIC CLEARANCE DEFAULT (${auditMonth})`;
+    doc.text(subject, pageWidth / 2, y, { align: "center" });
+    doc.setLineWidth(0.5);
+    doc.line(20, y + 2, pageWidth - 20, y + 2);
+
+    // Narrative Body
+    y += 15;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    const letterBody = data.responseContent || data.letterText || `The Management of the NYSC has noted your failure to participate in the mandatory biometric clearance for ${auditMonth}, in violation of the NYSC Act and Bye-Laws. You are hereby directed to submit a written explanation within 48 hours of receipt of this query, stating why disciplinary action should not be taken against you. Please note that sanctions for such default, as provided under the NYSC Bye-Laws (Revised 2011), may include extension of service without pay. Kindly treat this matter as urgent.`;
     const splitBody = doc.splitTextToSize(letterBody, pageWidth - 30);
-    doc.text(splitBody, 15, 125);
+    doc.text(splitBody, 15, y);
 
-    const signY = pageHeight - 60;
+    // Signature Block
+    const signY = pageHeight - 55;
     doc.setFont("helvetica", "bold");
-    doc.text("__________________________", 15, signY);
-    doc.text("For: Zonal Inspector", 15, signY + 7);
-    doc.text("NYSC Daura Zonal Office", 15, signY + 14);
+    doc.text("Zonal Inspector", 15, signY);
+    doc.setFont("helvetica", "normal");
+    doc.text("For: State Coordinator", 15, signY + 7);
   }
 
   const footerY = pageHeight - 15;
@@ -120,5 +151,5 @@ export const generateOfficialPDF = (data: any, type: string) => {
   doc.line(10, footerY - 5, pageWidth - 10, footerY - 5);
   doc.setTextColor(0, 0, 0); doc.setFontSize(8); doc.setFont("helvetica", "normal");
   doc.text("Email: nyscdaurazone@gmail.com", pageWidth / 2, footerY + 2, { align: "center" });
-  doc.save(`NYSC_Official_Document_${Date.now()}.pdf`);
+  doc.save(`NYSC_QUERY_${(data.code || data.stateCode || 'DOC').replace(/\//g, '_')}.pdf`);
 };

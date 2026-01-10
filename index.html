@@ -31,11 +31,15 @@
       animation: slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
     .custom-shadow {
-      box-shadow: 0 10px 30px -10px rgba(0, 77, 64, 0.15);
+      box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
     }
     .card-hover:hover {
       box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.1);
       transform: translateY(-2px);
+    }
+    .glass-nav {
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(10px);
     }
     @media print {
       .no-print { display: none !important; }
