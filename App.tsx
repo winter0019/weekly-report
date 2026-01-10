@@ -60,7 +60,6 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => window.localStorage.getItem('daura_auth') === 'true');
   const [userRole, setUserRole] = useState<UserRole | null>(() => window.localStorage.getItem('daura_role') as UserRole);
   const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => window.localStorage.getItem('daura_lga') as DauraLga);
-  const [ziStationFilter, setZiStationFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   const [division, setDivision] = useState<Division>('CIM');
@@ -112,7 +111,7 @@ const App: React.FC = () => {
     const filterFn = (items: any[]) => {
       let filtered = items;
       if (userRole === 'LGI') filtered = filtered.filter(i => i.lga === lgaContext);
-      else if (userRole === 'ZI' && ziStationFilter !== 'all') filtered = filtered.filter(i => i.lga === ziStationFilter);
+      // For ZI, we don't automatically filter unless specified by a search or logic.
       return filtered.filter(item => {
         if (!q) return true;
         return [item.name, item.cmName, item.groupName, item.stateCode, item.lga, (item as any).ppa]
@@ -127,7 +126,7 @@ const App: React.FC = () => {
       cdsGroups: filterFn(cdsGroups),
       cdsProjects: filterFn(cdsProjects)
     };
-  }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, cdsGroups, cdsProjects, userRole, lgaContext, ziStationFilter, searchQuery]);
+  }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, cdsGroups, cdsProjects, userRole, lgaContext, searchQuery]);
 
   if (!isAuthenticated) {
     return (
@@ -185,7 +184,7 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="bg-black/20 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-wider border border-white/5">{userRole === 'LGI' ? `${lgaContext} Unit` : 'Zonal HQ'}</div>
+            <div className="bg-black/20 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-wider border border-white/5">{userRole === 'LGI' ? `${lgaContext} Unit` : 'Zonal HQ Dashboard'}</div>
             <button onClick={handleLogout} className="w-7 h-7 bg-red-600/10 hover:bg-red-600 rounded transition-all flex items-center justify-center"><LogOutIcon /></button>
           </div>
         </header>
@@ -249,10 +248,10 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
   const handleIssueQuery = async (cm: any) => {
     setIsGenerating(true);
     try {
-      const ppaVal = cm.ppa || `LGA HQ: ${lga}`;
-      const content = await generateDisciplinaryQuery(cm.name, cm.code, lga, `Biometric Default (${cm.month})`, ppaVal);
+      const ppaVal = cm.ppa || `LGA HQ: ${cm.lga || lga}`;
+      const content = await generateDisciplinaryQuery(cm.name, cm.code, cm.lga || lga, `Biometric Default (${cm.month})`, ppaVal);
       const payload = { 
-        name: cm.name, stateCode: cm.code, lga: lga, ppa: ppaVal, 
+        name: cm.name, stateCode: cm.code, lga: cm.lga || lga, ppa: ppaVal, 
         misconduct: `BIOMETRIC DEFAULT - ${cm.month}`, status: 'Pending' as CDRStatus,
         responseContent: content, month: cm.month, dateOfInfraction: new Date().toISOString()
       };
@@ -271,11 +270,122 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     setFormData({month:''}); setClearedBatches([]); setTempUnclearedList([]);
   };
 
+  const aggregates = useMemo(() => {
+    const totalCleared = entries.reduce((acc: number, e: any) => acc + (e.clearedCount || 0), 0);
+    const totalDefaulters = entries.reduce((acc: number, e: any) => acc + (e.unclearedList?.length || 0), 0);
+    const uniqueLgas = new Set(entries.map((e: any) => e.lga)).size;
+    return { totalCleared, totalDefaulters, uniqueLgas };
+  }, [entries]);
+
+  // Render for Zonal Inspector
+  if (userRole === 'ZI') {
+    return (
+      <div className="w-full flex flex-col gap-5 animate-official">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Cleared (Global)</span>
+            <span className="text-3xl font-black text-emerald-600 font-serif-heading">{aggregates.totalCleared.toLocaleString()}</span>
+          </div>
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Infractions</span>
+            <span className="text-3xl font-black text-red-600 font-serif-heading">{aggregates.totalDefaulters.toLocaleString()}</span>
+          </div>
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Participating Stations</span>
+            <span className="text-3xl font-black text-[#004d40] font-serif-heading">{aggregates.uniqueLgas} / {LGAS.length}</span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-[#004d40] p-3 text-white flex justify-between items-center">
+             <h3 className="text-[11px] font-bold uppercase tracking-widest">Global Audit Summary Table</h3>
+             <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold uppercase border border-white/20">Biometric Action Ledger</button>
+          </div>
+          <div className="overflow-auto custom-scrollbar">
+            <table className="w-full border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr className="text-[9px] font-bold uppercase text-slate-400 text-left">
+                  <th className="p-3">Station/LGA</th>
+                  <th className="p-3">Latest Audit Period</th>
+                  <th className="p-3 text-center">Cleared</th>
+                  <th className="p-3 text-center">Defaulters</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {LGAS.map(lgaName => {
+                  const lgaEntries = entries.filter((e: any) => e.lga === lgaName);
+                  if (lgaEntries.length === 0) return (
+                    <tr key={lgaName} className="hover:bg-slate-50 opacity-40">
+                      <td className="p-3 font-bold text-slate-700">{lgaName}</td>
+                      <td className="p-3 text-xs italic">No audit records found</td>
+                      <td className="p-3 text-center">0</td>
+                      <td className="p-3 text-center">0</td>
+                      <td className="p-3 text-right">---</td>
+                    </tr>
+                  );
+                  const latest = lgaEntries[0];
+                  return (
+                    <tr key={lgaName} className="hover:bg-slate-50 transition-all">
+                      <td className="p-3 font-bold text-slate-800">{lgaName}</td>
+                      <td className="p-3 font-medium text-slate-600">{latest.month}</td>
+                      <td className="p-3 text-center font-black text-emerald-600">{latest.clearedCount}</td>
+                      <td className="p-3 text-center font-black text-red-600">{latest.unclearedList?.length || 0}</td>
+                      <td className="p-3 text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {isLedgerOpen && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-3xl rounded-lg shadow-2xl flex flex-col h-[75vh]">
+              <div className="bg-[#004d40] p-4 text-white flex justify-between items-center shrink-0">
+                 <h3 className="text-[14px] font-black uppercase tracking-tight">Global Biometric Registry</h3>
+                 <button onClick={() => setIsLedgerOpen(false)} className="text-xl">✕</button>
+              </div>
+              <div className="flex-1 overflow-auto p-4 custom-scrollbar">
+                 <table className="w-full">
+                    <thead className="text-[8px] font-bold uppercase text-slate-400 text-left border-b border-slate-100"><tr className="pb-1"><th>Personnel</th><th>Station</th><th className="text-right">Actions</th></tr></thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month }))], []).map((cm: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50 transition-all">
+                            <td className="py-2">
+                              <p className="font-bold text-slate-700 text-[11px] uppercase">{cm.name}</p>
+                              <p className="text-[8px] font-bold text-emerald-800 opacity-60 uppercase">{cm.code} • {cm.month}</p>
+                            </td>
+                            <td className="py-2"><span className="px-2 py-0.5 bg-white text-slate-400 rounded text-[8px] font-bold uppercase border border-slate-200">{cm.ppa || cm.lga}</span></td>
+                            <td className="py-2 text-right">
+                               <div className="flex items-center justify-end gap-1.5">
+                                 <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50">Issue Query</button>
+                                 <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
+                               </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Render for Local Government Inspector (Original Functionality)
   return (
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Batches</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Station Registry</h3>
           <div className="space-y-1 mb-3 max-h-[140px] overflow-auto pr-1 custom-scrollbar">
             {tempBatches.map((b, i) => (
               <div key={i} className="p-2 bg-slate-50 rounded border border-slate-100 flex justify-between items-center group">
@@ -290,27 +400,27 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                 <input type="number" placeholder="M" className="p-1.5 bg-white rounded border border-slate-200 text-[10px]" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
                 <input type="number" placeholder="F" className="p-1.5 bg-white rounded border border-slate-200 text-[10px]" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
              </div>
-             <button onClick={() => { if(newBatch.batch) {setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'',males:0,females:0});} }} className="w-full py-1.5 bg-[#004d40] text-white rounded text-[8px] font-bold uppercase">Add</button>
+             <button onClick={() => { if(newBatch.batch) {setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'',males:0,females:0});} }} className="w-full py-1.5 bg-[#004d40] text-white rounded text-[8px] font-bold uppercase">Add Batch</button>
           </div>
-          <button onClick={handleSaveStationDisposition} className="w-full mt-2 bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Save Master</button>
+          <button onClick={handleSaveStationDisposition} className="w-full mt-2 bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Update Dispositions</button>
         </div>
 
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Audit</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Submit Monthly Audit</h3>
           <form onSubmit={handleSubmit} className="space-y-2">
             <input required placeholder="MONTH (JAN 2026)" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
             <div className="p-2 bg-emerald-50/40 rounded border border-emerald-100 space-y-1.5">
                <select className="w-full p-1.5 bg-white rounded border border-slate-200 text-[9px]" onChange={e => setNewClearedBatch({...newClearedBatch, batch: e.target.value})} value={newClearedBatch.batch}>
-                 <option value="">Batch...</option>
+                 <option value="">Select...</option>
                  {tempBatches.map(b => <option key={b.batch} value={b.batch}>{b.batch}</option>)}
                </select>
                <div className="grid grid-cols-2 gap-1.5">
                   <input type="number" placeholder="M" className="p-1.5 bg-white rounded border border-slate-200 text-[9px]" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt(e.target.value) || 0})} />
                   <input type="number" placeholder="F" className="p-1.5 bg-white rounded border border-slate-200 text-[9px]" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt(e.target.value) || 0})} />
                </div>
-               <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'',males:0,females:0}); } }} className="w-full py-1 bg-[#004d40] text-white rounded text-[8px] font-bold">Add Row</button>
+               <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'',males:0,females:0}); } }} className="w-full py-1 bg-[#004d40] text-white rounded text-[8px] font-bold">Add Entry</button>
             </div>
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Publish</button>
+            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Publish Audit</button>
           </form>
         </div>
       </div>
@@ -319,9 +429,9 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         <div className="bg-[#004d40] p-4 rounded-lg text-white shadow animate-official flex justify-between items-center">
            <div>
               <span className="text-2xl font-black">{entries.length}</span>
-              <span className="ml-2 text-[8px] font-bold uppercase tracking-widest opacity-50">Audits Logged</span>
+              <span className="ml-2 text-[8px] font-bold uppercase tracking-widest opacity-50">Local Audits</span>
            </div>
-           <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white text-[#004d40] rounded text-[8px] font-bold uppercase shadow-sm">View Ledger</button>
+           <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white text-[#004d40] rounded text-[8px] font-bold uppercase shadow-sm">Station Ledger</button>
         </div>
 
         <div className="space-y-2">
@@ -341,8 +451,8 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                    <span className="text-[7px] font-bold text-slate-300 uppercase block">Defaults</span>
                  </div>
                  <div className="flex gap-1 no-print opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all scale-75"><DownloadIcon /></button>
-                   <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-6 h-6 flex items-center justify-center text-red-200 bg-red-50/10 rounded border border-red-100 hover:bg-red-600 hover:text-white transition-all scale-75"><TrashIcon /></button>
+                   <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded border border-emerald-100 scale-75"><DownloadIcon /></button>
+                   <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-6 h-6 flex items-center justify-center text-red-200 bg-red-50/10 rounded border scale-75 hover:bg-red-600 hover:text-white transition-all"><TrashIcon /></button>
                  </div>
                </div>
             </div>
@@ -354,7 +464,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-lg shadow-2xl flex flex-col h-[75vh]">
             <div className="bg-[#004d40] p-4 text-white flex justify-between items-center shrink-0">
-               <h3 className="text-[14px] font-black uppercase tracking-tight">Biometric Action Registry</h3>
+               <h3 className="text-[14px] font-black uppercase tracking-tight">Biometric Registry</h3>
                <button onClick={() => setIsLedgerOpen(false)} className="text-xl">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-4 custom-scrollbar">
@@ -371,7 +481,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                           <td className="py-2 text-right">
                              <div className="flex items-center justify-end gap-1.5">
                                <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50">Query</button>
-                               <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
+                               <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
                              </div>
                           </td>
                         </tr>
@@ -420,7 +530,7 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
     <>
       <div className="w-full lg:w-[280px] shrink-0 no-print">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[8px] mb-3 text-slate-400 text-center tracking-widest">Register Case</h3>
+          <h3 className="font-bold uppercase text-[8px] mb-3 text-slate-400 text-center tracking-widest">Register Disciplinary Case</h3>
           <form onSubmit={handleSubmit} className="space-y-2">
             <input required placeholder="MEMBER NAME" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none focus:ring-1 focus:ring-emerald-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none focus:ring-1 focus:ring-emerald-500" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
@@ -470,16 +580,15 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                 </div>
              )}
 
-             {/* INVESTIGATIVE ACTIONS (LGI) */}
              {userRole === 'LGI' && (cm.status === 'Pending' || cm.status === 'Responded') && (
                <div className="p-3 bg-blue-50/10 rounded border border-blue-100 mb-3 animate-official">
                   <p className="text-[8px] font-black text-blue-800 uppercase tracking-widest mb-3">Investigation Desk (LGI)</p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
                     <div className="p-2.5 bg-white rounded border border-blue-50 shadow-sm">
-                      <p className="text-[7px] font-bold text-slate-400 uppercase mb-1.5">A. Written Response</p>
+                      <p className="text-[7px] font-bold text-slate-400 uppercase mb-1.5">A. Response Upload</p>
                       <input type="file" className="text-[8px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[8px] file:font-bold file:bg-blue-50 file:text-blue-700 w-full" onChange={(e) => handleFileUpload(cm.id, 'responseImage', e.target.files)} />
-                      {cm.responseImage && <p className="text-[7px] font-black text-emerald-600 mt-1 uppercase">✓ Document Secured</p>}
+                      {cm.responseImage && <p className="text-[7px] font-black text-emerald-600 mt-1 uppercase">✓ Response Logged</p>}
                     </div>
                     <div className="p-2.5 bg-white rounded border border-blue-50 shadow-sm">
                       <p className="text-[7px] font-bold text-slate-400 uppercase mb-1.5">B. Supporting Evidence</p>
@@ -493,7 +602,6 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
                </div>
              )}
 
-             {/* DIRECTIVE DESK (ZI) */}
              {userRole === 'ZI' && cm.status === 'Forwarded_to_ZI' && (
                <div className="p-3 bg-emerald-50/20 rounded border border-emerald-100 mb-3 animate-official">
                   <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest mb-2">Final Directive (ZI)</p>
@@ -525,22 +633,22 @@ const CDSModule = ({ groups, projects, lga, db }: any) => {
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">New Unit</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Create Unit</h3>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:'',meetingDay:'Wednesday'}); }} className="space-y-2">
             <input required placeholder="UNIT NAME" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
             <select className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
               <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option>
             </select>
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Create</button>
+            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Initialize</button>
           </form>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Personal Task</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Log Project</h3>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:'',status:'Ongoing'}); }} className="space-y-2">
             <input required placeholder="CM NAME" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: e.target.value.toUpperCase()})} />
             <input required placeholder="PROJECT" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
-            <button className="w-full bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Log</button>
+            <button className="w-full bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Save</button>
           </form>
         </div>
       </div>
@@ -568,7 +676,7 @@ const SAEDModule = ({ entries, db, lga }: any) => {
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Secure Hub</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">New Hub</h3>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',address:'',cmCount:0,fee:0}); }} className="space-y-2">
             <input required placeholder="HUB NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
             <input required placeholder="ADDRESS" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
@@ -576,7 +684,7 @@ const SAEDModule = ({ entries, db, lga }: any) => {
                <input type="number" placeholder="CMS" className="w-full p-2 bg-white rounded border text-[10px] font-bold" value={formData.cmCount || ''} onChange={e => setFormData({...formData, cmCount: parseInt(e.target.value) || 0})} />
                <input type="number" placeholder="₦ FEE" className="w-full p-2 bg-white rounded border text-[10px] font-bold" value={formData.fee || ''} onChange={e => setFormData({...formData, fee: parseInt(e.target.value) || 0})} />
             </div>
-            <button className="w-full bg-[#004d40] text-white p-2.5 rounded font-bold uppercase text-[8px] tracking-widest shadow-sm">Register Hub</button>
+            <button className="w-full bg-[#004d40] text-white p-2.5 rounded font-bold uppercase text-[8px] tracking-widest shadow-sm">Confirm Hub</button>
           </form>
         </div>
       </div>
@@ -588,7 +696,7 @@ const SAEDModule = ({ entries, db, lga }: any) => {
             <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">{c.address}</p>
             <div className="flex gap-6 pt-3 border-t border-slate-50 mt-3">
                <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase">Census</p><p className="text-[14px] font-black text-[#004d40]">{c.cmCount}</p></div>
-               <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase">Price</p><p className="text-[14px] font-black text-emerald-600">₦{Number(c.fee).toLocaleString()}</p></div>
+               <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase">Fee</p><p className="text-[14px] font-black text-emerald-600">₦{Number(c.fee).toLocaleString()}</p></div>
             </div>
             <button onClick={() => deleteData(db, "saed_centers", c.id)} className="absolute top-4 right-4 text-slate-100 group-hover:text-red-500 scale-75"><TrashIcon /></button>
           </div>
@@ -605,7 +713,7 @@ const CWHSModule = ({ entries, db, lga }: any) => {
     <>
       <div className="w-full lg:w-[280px] shrink-0 no-print">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Status Intake</h3>
+          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Status Registration</h3>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',category:ReportCategory.ABSCONDED,details:''}); }} className="space-y-2">
             <input required placeholder="PERSONNEL NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
@@ -613,7 +721,7 @@ const CWHSModule = ({ entries, db, lga }: any) => {
               {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <textarea placeholder="DETAILS..." className="w-full p-2 bg-slate-50 rounded border h-20 text-[10px]" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Commit</button>
+            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Submit Incident</button>
           </form>
         </div>
       </div>
@@ -622,7 +730,7 @@ const CWHSModule = ({ entries, db, lga }: any) => {
           <div key={e.id} className="bg-white p-4 rounded border border-slate-200 relative group animate-official shadow-sm overflow-hidden h-fit">
             <h4 className="text-[12px] font-black uppercase text-slate-800 leading-tight">{e.name}</h4>
             <p className="text-[8px] font-bold text-emerald-800 opacity-60 mt-1 uppercase leading-none">{e.stateCode}</p>
-            <div className="p-2 bg-slate-50 rounded border border-slate-100 my-2.5 shadow-inner"><p className="text-[10px] text-slate-600 italic leading-tight">"{e.details || 'Empty narrative.'}"</p></div>
+            <div className="p-2 bg-slate-50 rounded border border-slate-100 my-2.5 shadow-inner"><p className="text-[10px] text-slate-600 italic leading-tight">"{e.details || 'No narrative.'}"</p></div>
             <div className="flex justify-between items-center border-t border-slate-50 pt-2.5">
                <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">{e.category} | {e.lga}</span>
                <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="text-slate-100 group-hover:text-red-500 transition-colors scale-75"><TrashIcon /></button>
