@@ -22,11 +22,14 @@ import {
   FileTextIcon, 
   SearchIcon, 
   DashboardIcon, 
-  DownloadIcon
+  DownloadIcon,
+  ShareIcon,
+  SpreadsheetIcon
 } from './components/Icons';
 import { initFirebase, subscribeToCollection, addData, updateData, deleteData } from './services/firebaseService';
 import { generateDisciplinaryQuery } from './services/geminiService';
 import { generateOfficialPDF } from './services/pdfService';
+import { downloadCSV, shareData } from './services/exportService';
 
 const firebaseConfig = {
   apiKey: "AIzaSyA4Jk01ZevFJ0KjpCPysA9oWMeN56_QLcQ",
@@ -259,6 +262,17 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     } catch { window.alert("Error."); } finally { setIsGenerating(false); }
   };
 
+  const handleAuditMinute = async (auditId: string, minuteText: string) => {
+    await updateData(db, "cim_clearance", auditId, { ziMinute: minuteText });
+  };
+
+  const handleDefaulterMinute = async (auditId: string, cmCode: string, minuteText: string) => {
+    const audit = entries.find((e: any) => e.id === auditId);
+    if (!audit) return;
+    const newList = audit.unclearedList.map((cm: any) => cm.code === cmCode ? { ...cm, ziMinute: minuteText } : cm);
+    await updateData(db, "cim_clearance", auditId, { unclearedList: newList });
+  };
+
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     const totalM = clearedBatches.reduce((a,b)=>a+b.males,0);
@@ -279,7 +293,8 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     return (
       <div className="w-full flex flex-col gap-5 animate-official">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-2 opacity-10"><SpreadsheetIcon /></div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Cleared (Global)</span>
             <span className="text-3xl font-black text-emerald-600 font-serif-heading">{aggregates.totalCleared.toLocaleString()}</span>
           </div>
@@ -294,7 +309,10 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         </div>
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
           <div className="bg-[#004d40] p-3 text-white flex justify-between items-center">
-             <h3 className="text-[11px] font-bold uppercase tracking-widest">Global Audit Summary Table</h3>
+             <div className="flex items-center gap-3">
+               <h3 className="text-[11px] font-bold uppercase tracking-widest">Global Audit Summary Table</h3>
+               <button onClick={() => downloadCSV(entries, "Global_Biometric_Audit")} className="p-1 hover:bg-white/10 rounded" title="Export CSV"><SpreadsheetIcon /></button>
+             </div>
              <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold uppercase border border-white/20">Biometric Ledger</button>
           </div>
           <div className="overflow-auto custom-scrollbar">
@@ -305,6 +323,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                   <th className="p-3">Latest Month</th>
                   <th className="p-3 text-center">Cleared</th>
                   <th className="p-3 text-center">Defaulters</th>
+                  <th className="p-3">ZI Audit Minute</th>
                   <th className="p-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -317,6 +336,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                       <td className="p-3 text-xs italic">N/A</td>
                       <td className="p-3 text-center">0</td>
                       <td className="p-3 text-center">0</td>
+                      <td className="p-3">---</td>
                       <td className="p-3 text-right">---</td>
                     </tr>
                   );
@@ -327,8 +347,14 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                       <td className="p-3 font-medium text-slate-600">{latest.month}</td>
                       <td className="p-3 text-center font-black text-emerald-600">{latest.clearedCount}</td>
                       <td className="p-3 text-center font-black text-red-600">{latest.unclearedList?.length || 0}</td>
+                      <td className="p-3">
+                        <textarea className="w-full bg-slate-50 border p-1 rounded text-[8px] h-10 outline-none" placeholder="Directive..." defaultValue={latest.ziMinute} onBlur={(e) => handleAuditMinute(latest.id, e.target.value)} />
+                      </td>
                       <td className="p-3 text-right">
-                        <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
+                        <div className="flex justify-end gap-1">
+                          <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
+                          <button onClick={() => shareData(`Audit Report: ${lgaName}`, `Cleared: ${latest.clearedCount}, Defaulters: ${latest.unclearedList?.length || 0} for ${latest.month}`)} className="p-1.5 text-slate-400 hover:text-[#004d40] transition-colors"><ShareIcon /></button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -340,26 +366,35 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
 
         {isLedgerOpen && (
           <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-3xl rounded-lg shadow-2xl flex flex-col h-[75vh]">
+            <div className="bg-white w-full max-w-4xl rounded-lg shadow-2xl flex flex-col h-[85vh]">
               <div className="bg-[#004d40] p-4 text-white flex justify-between items-center shrink-0">
                  <h3 className="text-[14px] font-black uppercase tracking-tight">Global Biometric Registry</h3>
-                 <button onClick={() => setIsLedgerOpen(false)} className="text-xl">✕</button>
+                 <div className="flex gap-4 items-center">
+                    <button onClick={() => {
+                      const allDefaulters = entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, station: entry.lga, month: entry.month }))], []);
+                      downloadCSV(allDefaulters, "Global_Defaulters_Registry");
+                    }} className="text-white/80 hover:text-white" title="Download Excel"><SpreadsheetIcon /></button>
+                    <button onClick={() => setIsLedgerOpen(false)} className="text-xl">✕</button>
+                 </div>
               </div>
               <div className="flex-1 overflow-auto p-4 custom-scrollbar">
                  <table className="w-full">
-                    <thead className="text-[8px] font-bold uppercase text-slate-400 text-left border-b border-slate-100"><tr className="pb-1"><th>Personnel</th><th>Station</th><th className="text-right">Actions</th></tr></thead>
+                    <thead className="text-[8px] font-bold uppercase text-slate-400 text-left border-b border-slate-100"><tr className="pb-1"><th>Personnel</th><th>Station</th><th>Minute/Directive</th><th className="text-right">Actions</th></tr></thead>
                     <tbody className="divide-y divide-slate-50">
-                      {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month }))], []).map((cm: any, idx: number) => (
+                      {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, auditId: entry.id }))], []).map((cm: any, idx: number) => (
                           <tr key={idx} className="hover:bg-slate-50 transition-all">
                             <td className="py-2">
                               <p className="font-bold text-slate-700 text-[11px] uppercase">{cm.name}</p>
                               <p className="text-[8px] font-bold text-emerald-800 opacity-60 uppercase">{cm.code} • {cm.month}</p>
                             </td>
                             <td className="py-2"><span className="px-2 py-0.5 bg-white text-slate-400 rounded text-[8px] font-bold uppercase border border-slate-200">{cm.ppa || cm.lga}</span></td>
+                            <td className="py-2">
+                               <textarea className="w-full p-1 bg-white border rounded text-[9px] outline-none" placeholder="Add specific ZI minute..." defaultValue={cm.ziMinute} onBlur={(e) => handleDefaulterMinute(cm.auditId, cm.code, e.target.value)} />
+                            </td>
                             <td className="py-2 text-right">
                                <div className="flex items-center justify-end gap-1.5">
                                  <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50">Query</button>
-                                 <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
+                                 <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance. ZI Directive: ${cm.ziMinute || 'Awaiting response.'}`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded"><WhatsAppIcon /></button>
                                </div>
                             </td>
                           </tr>
@@ -422,29 +457,41 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
               <span className="text-2xl font-black">{entries.length}</span>
               <span className="ml-2 text-[8px] font-bold uppercase tracking-widest opacity-50">Local Audits</span>
            </div>
-           <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white text-[#004d40] rounded text-[8px] font-bold uppercase shadow-sm">Station Ledger</button>
+           <div className="flex items-center gap-2">
+              <button onClick={() => downloadCSV(entries, `${lga}_Local_Audit`)} className="p-1.5 bg-white/10 hover:bg-white/20 rounded border border-white/20"><SpreadsheetIcon /></button>
+              <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white text-[#004d40] rounded text-[8px] font-bold uppercase shadow-sm">Station Ledger</button>
+           </div>
         </div>
         <div className="space-y-2">
           {entries.map((e: CIMClearance) => (
-            <div key={e.id} className="bg-white p-3 rounded border border-slate-200 flex justify-between items-center hover:bg-slate-50 transition-all group">
-               <div>
-                 <h4 className="text-[12px] font-bold uppercase text-slate-800 leading-none">{e.month}</h4>
-                 <p className="text-[7px] font-bold text-slate-400 uppercase mt-1">Audit Record</p>
+            <div key={e.id} className="bg-white p-3 rounded border border-slate-200 flex flex-col hover:bg-slate-50 transition-all group">
+               <div className="flex justify-between items-center mb-2">
+                 <div>
+                   <h4 className="text-[12px] font-bold uppercase text-slate-800 leading-none">{e.month}</h4>
+                   <p className="text-[7px] font-bold text-slate-400 uppercase mt-1">Audit Record</p>
+                 </div>
+                 <div className="flex gap-4 items-center">
+                   <div className="text-center">
+                     <span className="block text-[14px] font-black text-emerald-600 leading-none">{e.clearedCount}</span>
+                     <span className="text-[7px] font-bold text-slate-300 uppercase block">Cleared</span>
+                   </div>
+                   <div className="text-center">
+                     <span className="block text-[14px] font-black text-red-600 leading-none">{e.unclearedList?.length || 0}</span>
+                     <span className="text-[7px] font-bold text-slate-300 uppercase block">Defaults</span>
+                   </div>
+                   <div className="flex gap-1 no-print opacity-0 group-hover:opacity-100 transition-opacity">
+                     <button onClick={() => shareData(`Report for ${e.month}`, `Station: ${lga}\nCleared: ${e.clearedCount}\nDefaults: ${e.unclearedList?.length || 0}`)} className="w-6 h-6 flex items-center justify-center text-blue-600 bg-blue-50 rounded border border-blue-100 scale-75"><ShareIcon /></button>
+                     <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded border border-emerald-100 scale-75"><DownloadIcon /></button>
+                     <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-6 h-6 flex items-center justify-center text-red-200 bg-red-50/10 rounded border scale-75 hover:bg-red-600 hover:text-white transition-all"><TrashIcon /></button>
+                   </div>
+                 </div>
                </div>
-               <div className="flex gap-4 items-center">
-                 <div className="text-center">
-                   <span className="block text-[14px] font-black text-emerald-600 leading-none">{e.clearedCount}</span>
-                   <span className="text-[7px] font-bold text-slate-300 uppercase block">Cleared</span>
+               {e.ziMinute && (
+                 <div className="p-2 bg-emerald-50 rounded border border-emerald-100 mt-1">
+                   <p className="text-[7px] font-black text-emerald-800 uppercase tracking-widest mb-1">ZI Directive:</p>
+                   <p className="text-[10px] text-slate-600 leading-relaxed italic">"{e.ziMinute}"</p>
                  </div>
-                 <div className="text-center">
-                   <span className="block text-[14px] font-black text-red-600 leading-none">{e.unclearedList?.length || 0}</span>
-                   <span className="text-[7px] font-bold text-slate-300 uppercase block">Defaults</span>
-                 </div>
-                 <div className="flex gap-1 no-print opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded border border-emerald-100 scale-75"><DownloadIcon /></button>
-                   <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-6 h-6 flex items-center justify-center text-red-200 bg-red-50/10 rounded border scale-75 hover:bg-red-600 hover:text-white transition-all"><TrashIcon /></button>
-                 </div>
-               </div>
+               )}
             </div>
           ))}
         </div>
@@ -520,7 +567,10 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
     <>
       <div className="w-full lg:w-[280px] shrink-0 no-print">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[8px] mb-3 text-slate-400 text-center tracking-widest">Register Disciplinary Case</h3>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className="font-bold uppercase text-[8px] text-slate-400 tracking-widest">Register Disciplinary Case</h3>
+             <button onClick={() => downloadCSV(entries, "Disciplinary_Cases")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          </div>
           <form onSubmit={handleSubmit} className="space-y-2">
             <input required placeholder="MEMBER NAME" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none focus:ring-1 focus:ring-emerald-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none focus:ring-1 focus:ring-emerald-500" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
@@ -607,21 +657,22 @@ const CDRModule = ({ entries, lga, db, userRole }: any) => {
              )}
 
              {/* DIRECTIVE DESK (ZI) */}
-             {userRole === 'ZI' && cm.status === 'Forwarded_to_ZI' && (
+             {userRole === 'ZI' && cm.status !== 'Forwarded_to_CDR' && (
                <div className="p-3 bg-emerald-50/20 rounded border border-emerald-100 mb-3 animate-official">
-                  <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest mb-2">Final Directive (ZI)</p>
-                  <textarea className="w-full p-2.5 bg-white rounded border border-emerald-100 text-[10px] h-20 outline-none focus:ring-1 focus:ring-emerald-500 mb-2 leading-relaxed" placeholder="Formal HQ directive..." defaultValue={cm.ziMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)} />
+                  <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest mb-2">ZI Directive Desktop</p>
+                  <textarea className="w-full p-2.5 bg-white rounded border border-emerald-100 text-[10px] h-20 outline-none focus:ring-1 focus:ring-emerald-500 mb-2 leading-relaxed" placeholder="Formal HQ minute..." defaultValue={cm.ziMinute} onBlur={(e) => handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)} />
                   <div className="grid grid-cols-1 gap-2">
                     <div className="grid grid-cols-2 gap-2">
                       <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')} className="py-2 bg-emerald-700 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-emerald-950 shadow-sm">Minute to CIM</button>
                       <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_back_to_LGI')} className="py-2 bg-yellow-600 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-yellow-800 shadow-sm">Minute back to LGI</button>
                     </div>
-                    <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_CDR')} className="py-2 bg-slate-900 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-black shadow-sm">Close Record</button>
+                    <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_CDR')} className="py-2 bg-slate-900 text-white rounded text-[8px] font-bold uppercase tracking-widest border-b-2 border-black shadow-sm">Finalize & Close Case</button>
                   </div>
                </div>
              )}
 
              <div className="flex justify-end items-center border-t border-slate-50 pt-3 gap-3 no-print">
+               <button onClick={() => shareData(`Case: ${cm.name}`, `Status: ${cm.status || 'Pending'}\nMisconduct: ${cm.misconduct}`)} className="w-8 h-8 flex items-center justify-center text-blue-600 bg-white border rounded hover:bg-blue-50 transition-all scale-75 shadow-sm"><ShareIcon /></button>
                <button onClick={() => generateOfficialPDF(cm, 'CDR_CASE')} className="w-8 h-8 flex items-center justify-center text-slate-400 bg-white border rounded hover:text-slate-600 transition-all scale-75 shadow-sm"><DownloadIcon /></button>
                <button className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-white border rounded hover:bg-emerald-50 transition-all scale-75 shadow-sm" onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Administrative Case Update for ${cm.name} dossier.`)}`)}><WhatsAppIcon /></button>
              </div>
@@ -651,7 +702,10 @@ const CDSModule = ({ groups, projects, lga, db }: any) => {
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Create Unit</h3>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Create Unit</h3>
+             <button onClick={() => downloadCSV(groups, "CDS_Units")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          </div>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:'',meetingDay:'Wednesday'}); }} className="space-y-2">
             <input required placeholder="UNIT NAME" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
             <select className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
@@ -661,7 +715,10 @@ const CDSModule = ({ groups, projects, lga, db }: any) => {
           </form>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Log Project</h3>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Log Project</h3>
+             <button onClick={() => downloadCSV(projects, "CDS_Projects")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          </div>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:'',status:'Ongoing'}); }} className="space-y-2">
             <input required placeholder="CM NAME" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: e.target.value.toUpperCase()})} />
@@ -679,7 +736,10 @@ const CDSModule = ({ groups, projects, lga, db }: any) => {
               <span className="bg-emerald-50 px-1.5 py-0.5 rounded">{g.meetingDay}</span>
               <span className="text-slate-300">Station: {g.lga}</span>
             </div>
-            <button onClick={() => deleteData(db, "cds_groups", g.id)} className="absolute top-3 right-3 text-slate-100 group-hover:text-red-500 scale-75 transition-colors"><TrashIcon /></button>
+            <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => shareData(`CDS Unit: ${g.groupName}`, `Meeting Day: ${g.meetingDay}\nStation: ${g.lga}`)} className="text-blue-500 scale-75"><ShareIcon /></button>
+              <button onClick={() => deleteData(db, "cds_groups", g.id)} className="text-red-500 scale-75"><TrashIcon /></button>
+            </div>
           </div>
         ))}
       </div>
@@ -694,7 +754,10 @@ const SAEDModule = ({ entries, db, lga }: any) => {
     <>
       <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">New Hub</h3>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">New Hub</h3>
+             <button onClick={() => downloadCSV(entries, "SAED_Hubs")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          </div>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',address:'',cmCount:0,fee:0}); }} className="space-y-2">
             <input required placeholder="HUB NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
             <input required placeholder="ADDRESS" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
@@ -716,7 +779,10 @@ const SAEDModule = ({ entries, db, lga }: any) => {
                <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase">Census</p><p className="text-[14px] font-black text-[#004d40]">{c.cmCount}</p></div>
                <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase">Fee</p><p className="text-[14px] font-black text-emerald-600">₦{Number(c.fee).toLocaleString()}</p></div>
             </div>
-            <button onClick={() => deleteData(db, "saed_centers", c.id)} className="absolute top-4 right-4 text-slate-100 group-hover:text-red-500 scale-75"><TrashIcon /></button>
+            <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => shareData(`SAED Hub: ${c.centerName}`, `Census: ${c.cmCount}\nFee: ₦${Number(c.fee).toLocaleString()}`)} className="text-blue-500 scale-75"><ShareIcon /></button>
+              <button onClick={() => deleteData(db, "saed_centers", c.id)} className="text-red-500 scale-75"><TrashIcon /></button>
+            </div>
           </div>
         ))}
       </div>
@@ -731,7 +797,10 @@ const CWHSModule = ({ entries, db, lga }: any) => {
     <>
       <div className="w-full lg:w-[280px] shrink-0 no-print">
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Status Registration</h3>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest">Status Registration</h3>
+             <button onClick={() => downloadCSV(entries, "CWHS_Status_Reports")} className="text-slate-300 hover:text-emerald-600"><SpreadsheetIcon /></button>
+          </div>
           <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',category:ReportCategory.ABSCONDED,details:''}); }} className="space-y-2">
             <input required placeholder="PERSONNEL NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
             <input required placeholder="CODE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
@@ -751,7 +820,10 @@ const CWHSModule = ({ entries, db, lga }: any) => {
             <div className="p-2 bg-slate-50 rounded border border-slate-100 my-2.5 shadow-inner"><p className="text-[10px] text-slate-600 italic leading-tight">"{e.details || 'No narrative.'}"</p></div>
             <div className="flex justify-between items-center border-t border-slate-50 pt-2.5">
                <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">{e.category} | {e.lga}</span>
-               <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="text-slate-100 group-hover:text-red-500 transition-colors scale-75"><TrashIcon /></button>
+               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                 <button onClick={() => shareData(`CWHS Report: ${e.name}`, `Category: ${e.category}\nDetails: ${e.details}`)} className="text-blue-500 scale-75"><ShareIcon /></button>
+                 <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="text-red-500 scale-75"><TrashIcon /></button>
+               </div>
             </div>
           </div>
         ))}

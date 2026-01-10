@@ -66,9 +66,11 @@ export interface CIMClearance {
     reason: string;
     ppa?: string;
     logs?: CIMDefaulterLog[];
+    ziMinute?: string;
   }[];
   batchClearance: CIMBatchDisposition[];
   dateAdded: string;
+  ziMinute?: string;
 }
 
 export interface SAEDCenter {
