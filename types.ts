@@ -91,6 +91,7 @@ export interface CDSGroup {
   dateAdded: string;
 }
 
+// Added projectType and location properties to match the schema used in project registration and rendering
 export interface CDSPersonalProject {
   id: string;
   lga: DauraLga;
@@ -100,6 +101,8 @@ export interface CDSPersonalProject {
   description: string;
   status: 'Ongoing' | 'Completed';
   dateAdded: string;
+  projectType: string;
+  location: string;
 }
 
 export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_to_CIM' | 'Forwarded_to_CDR' | 'Minuted_back_to_LGI';
