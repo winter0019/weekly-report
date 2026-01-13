@@ -1,4 +1,3 @@
-
 export enum ReportCategory {
   ABSCONDED = 'Absconded',
   SICK = 'Sick/Hospitalized',
@@ -8,6 +7,8 @@ export enum ReportCategory {
 }
 
 export type UserRole = 'ZI' | 'LGI';
+
+export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED';
 
 export type DauraLga = 
   | 'Daura' 
@@ -46,68 +47,37 @@ export interface StationDisposition {
   batches: CIMBatchDisposition[];
 }
 
-export interface CIMDefaulterLog {
-  action: string;
-  timestamp: string;
-  role: string;
-}
-
 export interface CIMClearance {
   id: string;
   lga: DauraLga;
   month: string;
   maleCount: number;
   femaleCount: number;
-  unclearedMaleCount?: number;
-  unclearedFemaleCount?: number;
   totalCMs: number;
   clearedCount: number;
+  dateAdded: string;
+  ziMinute?: string;
   unclearedList: { 
     name: string; 
     code: string; 
     reason: string;
     gender: 'Male' | 'Female';
     ppa?: string;
-    logs?: CIMDefaulterLog[];
     ziMinute?: string;
   }[];
-  batchClearance: CIMBatchDisposition[];
-  dateAdded: string;
-  ziMinute?: string;
 }
 
 export interface SAEDCenter {
   id: string;
-  lga: DauraLga;
   centerName: string;
   address: string;
   cmCount: number;
   fee: number;
-  dateAdded: string;
-}
-
-export interface CDSGroup {
-  id: string;
   lga: DauraLga;
-  groupName: string;
-  meetingDay: string;
   dateAdded: string;
 }
 
-export interface CDSPersonalProject {
-  id: string;
-  lga: DauraLga;
-  cmName: string;
-  stateCode: string;
-  projectName: string;
-  description: string;
-  status: 'Ongoing' | 'Completed';
-  dateAdded: string;
-  projectType: string;
-  location: string;
-}
-
-export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_to_CIM' | 'Forwarded_to_CDR' | 'Minuted_back_to_LGI';
+export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_back_to_LGI' | 'Forwarded_to_CDR' | 'Minuted_to_CIM';
 
 export interface CDRCase {
   id: string;
@@ -116,15 +86,39 @@ export interface CDRCase {
   lga: DauraLga;
   ppa: string;
   misconduct: string;
+  status: CDRStatus;
   dateOfInfraction: string;
-  dateAdded: string;
-  status?: CDRStatus;
-  responseContent?: string;
   lgiMinute?: string;
   ziMinute?: string;
-  responseImage?: string; // Base64 string
-  evidenceDocuments?: string[]; // Array of Base64 strings
-  month?: string; // Month for query context
+  responseImage?: string;
+  responseContent?: string;
+  dateAdded: string;
+  evidenceDocuments?: string[];
 }
 
-export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED';
+export interface CDSGroup {
+  id: string;
+  groupName: string;
+  meetingDay: string;
+  lga: DauraLga;
+  dateAdded: string;
+}
+
+export interface CDSPersonalProject {
+  id: string;
+  cmName: string;
+  stateCode: string;
+  projectName: string;
+  projectType: string;
+  location: string;
+  description: string;
+  status: 'Ongoing' | 'Completed';
+  lga: DauraLga;
+  dateAdded: string;
+}
+
+export interface AppSettings {
+  id: string;
+  googleFormUrl: string;
+  lastUpdatedBy: string;
+}
