@@ -58,12 +58,15 @@ export interface CIMClearance {
   month: string;
   maleCount: number;
   femaleCount: number;
+  unclearedMaleCount?: number;
+  unclearedFemaleCount?: number;
   totalCMs: number;
   clearedCount: number;
   unclearedList: { 
     name: string; 
     code: string; 
     reason: string;
+    gender: 'Male' | 'Female';
     ppa?: string;
     logs?: CIMDefaulterLog[];
     ziMinute?: string;
@@ -91,7 +94,6 @@ export interface CDSGroup {
   dateAdded: string;
 }
 
-// Added projectType and location properties to match the schema used in project registration and rendering
 export interface CDSPersonalProject {
   id: string;
   lga: DauraLga;
