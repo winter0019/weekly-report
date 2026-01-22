@@ -14,7 +14,8 @@ import {
   CDSPersonalProject,
   CIMBatchDisposition,
   StationDisposition,
-  AppSettings
+  AppSettings,
+  PersonnelEntry
 } from './types';
 import { 
   WhatsAppIcon, 
@@ -49,7 +50,7 @@ const SECURITY_PINS: Record<string, string> = {
 };
 
 const DIVISION_LABELS: Record<Division, string> = {
-  'CWHS': 'CW&HS', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CDS', 'SAED': 'SAED'
+  'PERSONNEL': 'Personnel', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CDS', 'SAED': 'SAED', 'CWHS': 'CW&HS'
 };
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -67,7 +68,8 @@ const App: React.FC = () => {
   const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => window.localStorage.getItem('daura_lga') as DauraLga);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  const [division, setDivision] = useState<Division>('CIM');
+  const [division, setDivision] = useState<Division>('PERSONNEL');
+  const [personnelRegistry, setPersonnelRegistry] = useState<PersonnelEntry[]>([]);
   const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
   const [cimEntries, setCimEntries] = useState<CIMClearance[]>([]);
   const [saedEntries, setSAEDEntries] = useState<SAEDCenter[]>([]);
@@ -92,6 +94,7 @@ const App: React.FC = () => {
           const db = initFirebase(firebaseConfig);
           dbRef.current = db;
           if (db) {
+            unsubs.push(subscribeToCollection(db, "personnel_registry", (data) => active && setPersonnelRegistry(data)));
             unsubs.push(subscribeToCollection(db, "nysc_reports", (data) => active && setCwhsEntries(data)));
             unsubs.push(subscribeToCollection(db, "cim_clearance", (data) => active && setCimEntries(data)));
             unsubs.push(subscribeToCollection(db, "saed_centers", (data) => active && setSAEDEntries(data)));
@@ -120,7 +123,7 @@ const App: React.FC = () => {
     const q = searchQuery.toLowerCase().trim();
     const filterFn = (items: any[]) => {
       let filtered = items;
-      if (userRole === 'LGI') filtered = filtered.filter(i => i.lga === lgaContext);
+      if (userRole === 'LGI' && division !== 'PERSONNEL') filtered = filtered.filter(i => i.lga === lgaContext);
       return filtered.filter(item => {
         if (!q) return true;
         return [item.name, item.cmName, item.groupName, item.projectName, item.stateCode, item.lga, (item as any).ppa]
@@ -128,6 +131,7 @@ const App: React.FC = () => {
       });
     };
     return {
+      personnel: filterFn(personnelRegistry),
       cwhs: filterFn(cwhsEntries),
       cim: filterFn(cimEntries),
       saed: filterFn(saedEntries),
@@ -135,7 +139,7 @@ const App: React.FC = () => {
       cdsGroups: filterFn(cdsGroups),
       cdsProjects: filterFn(cdsProjects)
     };
-  }, [cwhsEntries, cimEntries, saedEntries, cdrEntries, cdsGroups, cdsProjects, userRole, lgaContext, searchQuery]);
+  }, [personnelRegistry, cwhsEntries, cimEntries, saedEntries, cdrEntries, cdsGroups, cdsProjects, userRole, lgaContext, searchQuery, division]);
 
   if (!isAuthenticated) {
     return (
@@ -221,6 +225,7 @@ const App: React.FC = () => {
             </div>
           ) : (
             <>
+              {division === 'PERSONNEL' && <PersonnelModule entries={filteredData.personnel} db={dbRef.current} userRole={userRole} lgaContext={lgaContext} />}
               {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} userRole={userRole} stationDispositions={userRole === 'ZI' ? stationDispositions : stationDispositions.filter(s => s.lga === lgaContext)} />}
               {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
@@ -256,6 +261,143 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+/* --- Personnel Master Registry Module --- */
+const PersonnelModule = ({ entries, db, userRole, lgaContext }: any) => {
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        
+        // Expected columns: Name, State Code, Batch, LGA, PPA, Gender
+        const dataRows = lines.slice(1).filter(line => line.trim() !== '');
+        
+        let successCount = 0;
+        for (const row of dataRows) {
+          const values = row.split(',').map(v => v.trim());
+          if (values.length < 2) continue;
+
+          const payload = {
+            name: values[0] || 'Unknown',
+            stateCode: values[1] || 'N/A',
+            batch: values[2] || 'N/A',
+            lga: values[3] || 'N/A',
+            ppa: values[4] || 'N/A',
+            gender: values[5] || 'N/A',
+          };
+
+          await addData(db, "personnel_registry", payload);
+          successCount++;
+        }
+        alert(`Registry updated: ${successCount} records imported.`);
+      } catch (err) {
+        console.error(err);
+        alert("Upload failed. Ensure CSV format: Name,StateCode,Batch,LGA,PPA,Gender");
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="w-full flex flex-col gap-6 animate-official">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+        <div>
+          <h2 className="text-sm font-black uppercase text-slate-800 tracking-widest font-serif-heading">Find Corps Member</h2>
+          <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Master Registry Search Engine</p>
+        </div>
+        {userRole === 'ZI' && (
+          <div className="flex items-center gap-2">
+            <input 
+              type="file" 
+              accept=".csv" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+              className="hidden" 
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()} 
+              disabled={isUploading}
+              className="px-4 py-2 bg-[#004d40] text-white rounded text-[10px] font-black uppercase flex items-center gap-2 shadow-md disabled:opacity-50"
+            >
+              {isUploading ? 'Importing...' : <><SpreadsheetIcon /> Upload Registry (CSV)</>}
+            </button>
+            <button onClick={() => downloadCSV(entries, "Master_Personnel_Registry")} className="p-2 text-slate-400 border rounded-lg hover:bg-slate-50">
+              <DownloadIcon />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-slate-50 border-b p-3 flex justify-between items-center">
+           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global Personnel Index ({entries.length})</span>
+           <div className="text-[8px] font-bold text-slate-300 uppercase italic">SEARCH BY NAME OR STATE CODE (KT/XX/XXXX)</div>
+        </div>
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full border-collapse">
+            <thead className="bg-slate-50">
+              <tr className="text-[9px] font-black uppercase text-slate-400 text-left border-b">
+                <th className="p-4">Personnel Details</th>
+                <th className="p-4">State Code</th>
+                <th className="p-4">Batch</th>
+                <th className="p-4">Station / PPA</th>
+                <th className="p-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {entries.map((p: PersonnelEntry) => (
+                <tr key={p.id} className="hover:bg-slate-50/80 transition-all group">
+                  <td className="p-4">
+                    <p className="font-black text-slate-700 text-[11px] uppercase leading-none">{p.name}</p>
+                    <p className="text-[8px] font-bold text-slate-300 mt-1 uppercase">{p.gender}</p>
+                  </td>
+                  <td className="p-4 text-[10px] font-black text-emerald-700 uppercase tracking-wider">{p.stateCode}</td>
+                  <td className="p-4">
+                    <span className="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-black text-slate-500 uppercase">{p.batch}</span>
+                  </td>
+                  <td className="p-4">
+                    <p className="text-[10px] font-bold text-slate-600 uppercase">{p.lga}</p>
+                    <p className="text-[8px] text-slate-400 uppercase mt-0.5">{p.ppa}</p>
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="flex justify-end gap-2">
+                       <button onClick={() => shareData(`Personnel: ${p.name}`, `${p.stateCode} | ${p.lga} | ${p.ppa}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded">
+                          <ShareIcon />
+                       </button>
+                       {userRole === 'ZI' && (
+                         <button onClick={() => deleteData(db, "personnel_registry", p.id)} className="p-1.5 text-red-300 hover:text-red-500 rounded">
+                            <TrashIcon />
+                         </button>
+                       )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {entries.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-20 text-center text-slate-300 font-black uppercase text-[10px]">No records match search criteria.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };

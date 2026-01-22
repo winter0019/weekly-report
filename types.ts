@@ -8,7 +8,7 @@ export enum ReportCategory {
 
 export type UserRole = 'ZI' | 'LGI';
 
-export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED';
+export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED' | 'PERSONNEL';
 
 export type DauraLga = 
   | 'Daura' 
@@ -20,6 +20,17 @@ export type DauraLga =
   | 'Dutsi' 
   | 'Mani' 
   | 'Bindawa';
+
+export interface PersonnelEntry {
+  id: string;
+  name: string;
+  stateCode: string;
+  batch: string;
+  lga: string;
+  ppa: string;
+  gender: string;
+  dateAdded: string;
+}
 
 export interface CorpsMemberEntry {
   id: string;
