@@ -1,8 +1,8 @@
-
 import { initializeApp, getApps, FirebaseApp, getApp } from "firebase/app";
 import { 
   initializeFirestore, 
-  enableIndexedDbPersistence,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection, 
   onSnapshot, 
   query, 
@@ -33,17 +33,13 @@ export const initFirebase = (config: any): Firestore => {
     }
     
     if (!dbInstance) {
+      // Modern way to enable persistence using FirestoreSettings.cache to avoid deprecation warnings
       dbInstance = initializeFirestore(app, {
         experimentalForceLongPolling: true,
-        useFetchStreams: false // More robust for high-latency connections
-      });
-
-      enableIndexedDbPersistence(dbInstance).catch((err) => {
-        if (err.code === 'failed-precondition') {
-          console.warn("Firestore Persistence: Failed (multiple tabs).");
-        } else if (err.code === 'unimplemented') {
-          console.warn("Firestore Persistence: Unimplemented.");
-        }
+        useFetchStreams: false,
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
       });
     }
     

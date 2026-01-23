@@ -1,3 +1,4 @@
+
 export enum ReportCategory {
   ABSCONDED = 'Absconded',
   SICK = 'Sick/Hospitalized',
@@ -8,7 +9,7 @@ export enum ReportCategory {
 
 export type UserRole = 'ZI' | 'LGI';
 
-export type Division = 'CWHS' | 'CIM' | 'CDR' | 'CDS' | 'SAED' | 'PERSONNEL';
+export type Division = 'PERSONNEL' | 'CIM' | 'CDR' | 'CDS' | 'SAED' | 'CWHS';
 
 export type DauraLga = 
   | 'Daura' 
@@ -23,12 +24,15 @@ export type DauraLga =
 
 export interface PersonnelEntry {
   id: string;
-  name: string;
   stateCode: string;
-  batch: string;
-  lga: string;
-  ppa: string;
+  surname: string;
+  othernames: string;
   gender: string;
+  gsmNo: string;
+  company: string;
+  stream: string;
+  lga: string;
+  batch: string;
   dateAdded: string;
 }
 
@@ -96,6 +100,8 @@ export interface CDRCase {
   stateCode: string;
   lga: DauraLga;
   ppa: string;
+  // Added gsmNo property to fix 'Property gsmNo does not exist on type CDRCase' error
+  gsmNo?: string;
   misconduct: string;
   status: CDRStatus;
   dateOfInfraction: string;

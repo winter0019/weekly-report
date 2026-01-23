@@ -1,62 +1,73 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>NYSC Katsina Secretariat Portal</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --nysc-green: #004d40;
+      --nysc-green-light: #00695c;
+      --nysc-accent: #10b981;
+    }
     body {
       font-family: 'Inter', sans-serif;
-      background-color: #f1f5f9;
-      color: #334155;
+      background-color: #f8fafc;
+      color: #1e293b;
       margin: 0;
       padding: 0;
       overflow-x: hidden;
       -webkit-font-smoothing: antialiased;
-      font-size: 12px; /* Professional enterprise standard */
+      font-size: 13px;
     }
     .font-serif-heading {
       font-family: 'Playfair Display', serif;
     }
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px); }
+      from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
     .animate-official {
-      animation: fadeIn 0.3s ease-out forwards;
+      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
     .glass-nav {
-      background: rgba(255, 255, 255, 0.98);
-      backdrop-filter: blur(4px);
-      border-bottom: 1px solid #e2e8f0;
-      height: 44px;
-    }
-    input, select, textarea {
-      font-size: 0.8rem !important;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+      z-index: 1000;
     }
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
+      height: 4px;
     }
     .custom-scrollbar::-webkit-scrollbar-track {
       background: transparent;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
       background: #cbd5e1;
-      border-radius: 4px;
+      border-radius: 20px;
+    }
+    .nav-tab-active {
+      background-color: var(--nysc-green);
+      color: white;
+      box-shadow: 0 4px 12px rgba(0, 77, 64, 0.15);
     }
     @media print {
       .no-print { display: none !important; }
       body { background: white !important; padding: 0 !important; }
     }
-    .compact-card {
-      border-radius: 0.75rem;
-      border: 1px solid #e2e8f0;
-      background: white;
-      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    input, select, textarea {
+      appearance: none;
+      outline: none;
+    }
+    /* Touch target improvements */
+    @media (max-width: 768px) {
+      .mobile-safe-pt { padding-top: 100px; }
+      button, a { min-height: 40px; }
     }
   </style>
 <script type="importmap">

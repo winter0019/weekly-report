@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ReportCategory, 
@@ -50,7 +49,7 @@ const SECURITY_PINS: Record<string, string> = {
 };
 
 const DIVISION_LABELS: Record<Division, string> = {
-  'PERSONNEL': 'Personnel', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CDS', 'SAED': 'SAED', 'CWHS': 'CW&HS'
+  'PERSONNEL': 'PERSONNEL', 'CIM': 'CIM', 'CDR': 'CD&R', 'CDS': 'CDS', 'SAED': 'SAED', 'CWHS': 'CW&HS'
 };
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -67,10 +66,10 @@ const App: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole | null>(() => window.localStorage.getItem('daura_role') as UserRole);
   const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => window.localStorage.getItem('daura_lga') as DauraLga);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  const [division, setDivision] = useState<Division>('PERSONNEL');
+  const [division, setDivision] = useState<Division>(() => (window.localStorage.getItem('last_div') as Division) || 'PERSONNEL');
+
   const [personnelRegistry, setPersonnelRegistry] = useState<PersonnelEntry[]>([]);
-  const [cwhsEntries, setCwhsEntries] = useState<CorpsMemberEntry[]>([]);
+  const [cwhsEntries, setCwhsEntries] = useState<any[]>([]);
   const [cimEntries, setCimEntries] = useState<CIMClearance[]>([]);
   const [saedEntries, setSAEDEntries] = useState<SAEDCenter[]>([]);
   const [cdrEntries, setCdrEntries] = useState<CDRCase[]>([]);
@@ -84,6 +83,10 @@ const App: React.FC = () => {
   const [pin, setPin] = useState('');
   const [pendingLogin, setPendingLogin] = useState<any>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    window.localStorage.setItem('last_div', division);
+  }, [division]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -123,11 +126,16 @@ const App: React.FC = () => {
     const q = searchQuery.toLowerCase().trim();
     const filterFn = (items: any[]) => {
       let filtered = items;
-      if (userRole === 'LGI' && division !== 'PERSONNEL') filtered = filtered.filter(i => i.lga === lgaContext);
+      if (userRole === 'LGI') {
+        filtered = filtered.filter(i => String(i.lga).toLowerCase() === String(lgaContext).toLowerCase());
+      }
       return filtered.filter(item => {
         if (!q) return true;
-        return [item.name, item.cmName, item.groupName, item.projectName, item.stateCode, item.lga, (item as any).ppa]
-          .some(s => String(s || '').toLowerCase().includes(q));
+        const searchPool = [
+          item.surname, item.othernames, item.name, item.stateCode, item.lga, item.company, item.ppa,
+          item.gsmNo, item.stream, item.batch
+        ].filter(Boolean).map(s => String(s).toLowerCase());
+        return searchPool.some(s => s.includes(q));
       });
     };
     return {
@@ -143,7 +151,7 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-950 via-slate-900 to-black">
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <form onSubmit={(e) => {
           e.preventDefault();
           const target = pendingLogin?.role === 'ZI' ? 'ZI' : pendingLogin?.lga;
@@ -155,79 +163,109 @@ const App: React.FC = () => {
             window.localStorage.setItem('daura_role', pendingLogin.role);
             if (pendingLogin.lga) window.localStorage.setItem('daura_lga', pendingLogin.lga);
           } else { window.alert("PIN Rejected."); }
-        }} className="bg-white p-5 rounded-lg shadow-xl w-full max-w-xs space-y-4 animate-official">
+        }} className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm space-y-6 animate-official">
           <div className="text-center">
-            <div className="w-10 h-10 bg-[#004d40] rounded-md mx-auto mb-2 flex items-center justify-center text-white font-serif-heading text-lg font-black">NYSC</div>
-            <h1 className="text-sm font-bold text-slate-800 uppercase tracking-tight">Access Terminal</h1>
+            <div className="w-16 h-16 bg-[#004d40] rounded-2xl mx-auto mb-4 flex items-center justify-center text-white font-serif-heading text-2xl font-black shadow-lg">NYSC</div>
+            <h1 className="text-lg font-black text-slate-800 uppercase tracking-widest">Access Terminal</h1>
           </div>
-          <div className="space-y-2">
-            <select required className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-[11px] font-semibold text-slate-700 outline-none" onChange={e => {
+          <div className="space-y-3">
+            <select required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 outline-none" onChange={e => {
                 const val = e.target.value;
                 setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
               }}>
-                <option value="">Select Station...</option>
-                <option value="ZI">Zonal Inspectorate</option>
-                {LGAS.map(l => <option key={l} value={l}>{l} Command</option>)}
+                <option value="">Select Command...</option>
+                <option value="ZI">Zonal Inspectorate (ZI)</option>
+                {LGAS.map(l => <option key={l} value={l}>{l} Unit (LGI)</option>)}
             </select>
-            <input type="password" required placeholder="Security PIN" className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-center text-lg font-black tracking-[0.4em] outline-none" value={pin} onChange={e => setPin(e.target.value)} />
+            <input type="password" required placeholder="PIN" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xl font-black tracking-[0.4em] outline-none" value={pin} onChange={e => setPin(e.target.value)} />
           </div>
-          <button className="w-full bg-[#004d40] text-white p-2.5 rounded font-bold uppercase tracking-wider text-[10px]">Verify</button>
+          <button className="w-full bg-[#004d40] text-white py-3.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-emerald-900/10 active:scale-95 transition-all">Verify Terminal</button>
         </form>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col pb-6">
-      <nav className="fixed top-0 left-0 right-0 z-[100] glass-nav flex justify-center no-print px-4 items-center">
-        <div className="flex bg-slate-100 p-0.5 rounded border border-slate-200 overflow-x-auto max-w-full">
+    <div className="min-h-screen bg-[#f3f4f6] flex flex-col pb-10">
+      {/* Top Navigation Bar - Pill Shaped */}
+      <div className="flex justify-center pt-6 no-print">
+        <nav className="bg-white p-1 rounded-xl shadow-sm border border-slate-200 flex items-center gap-1 overflow-x-auto custom-scrollbar">
           {(Object.keys(DIVISION_LABELS) as Division[]).map(id => (
-            <button key={id} onClick={() => setDivision(id)} className={`px-4 py-1 rounded transition-all font-bold uppercase text-[9px] tracking-wider whitespace-nowrap ${division === id ? 'bg-[#004d40] text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{DIVISION_LABELS[id]}</button>
+            <button 
+              key={id} 
+              onClick={() => setDivision(id)} 
+              className={`px-6 py-2.5 rounded-lg transition-all font-bold text-[11px] uppercase tracking-wider ${division === id ? 'bg-[#004d40] text-white shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              {DIVISION_LABELS[id]}
+            </button>
           ))}
-        </div>
-      </nav>
+        </nav>
+      </div>
 
-      <div className="pt-14 px-4 sm:px-6 max-w-[1200px] mx-auto w-full">
-        <header className="bg-[#004d40] text-white p-4 shadow-xl rounded-lg flex flex-wrap items-center justify-between no-print gap-4 mb-5 animate-official">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-white/10 rounded flex items-center justify-center border border-white/10 shadow-inner"><DashboardIcon /></div>
+      {/* Dark Green Header - Master Portal Hub */}
+      <div className="px-4 md:px-8 pt-4 no-print max-w-[1600px] mx-auto w-full">
+        <header className="bg-[#004d40] text-white p-4 md:p-6 shadow-2xl rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 border border-white/10 animate-official">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center border border-white/10">
+              <DashboardIcon />
+            </div>
             <div>
-              <h1 className="text-xs font-black uppercase tracking-tight font-serif-heading">NYSC DAURA COMMAND</h1>
-              <p className="text-[7px] font-bold text-emerald-300 tracking-wider uppercase opacity-50">Master Portal Hub</p>
+              <h1 className="text-lg font-black uppercase tracking-tighter leading-none mb-1">NYSC DAURA COMMAND</h1>
+              <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest opacity-70">MASTER PORTAL HUB</p>
             </div>
           </div>
+          
           <div className="flex items-center gap-3">
-            <a href={activeFormUrl} target="_blank" rel="noopener noreferrer" className="bg-emerald-500/20 hover:bg-emerald-500/40 px-3 py-1 rounded text-[8px] font-bold uppercase tracking-wider border border-white/10 transition-colors flex items-center gap-1 shadow-sm">
-              <PlusIcon /> Submit Report
+            <a 
+              href={activeFormUrl} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-white/5 active:scale-95"
+            >
+              <PlusIcon /> SUBMIT REPORT
             </a>
-            <div className="bg-black/20 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-wider border border-white/5">{userRole === 'LGI' ? `${lgaContext} Unit` : 'Zonal HQ Dashboard'}</div>
+            <div className="bg-black/20 px-4 py-2.5 rounded-xl flex items-center gap-3 border border-white/5">
+               <span className="text-[10px] font-black uppercase tracking-widest">{lgaContext ? `${lgaContext.toUpperCase()} UNIT` : 'ZONAL HQ'}</span>
+            </div>
+            <button onClick={handleLogout} className="w-10 h-10 bg-red-500/20 hover:bg-red-500 text-white rounded-xl transition-all flex items-center justify-center border border-white/5">
+              <LogOutIcon />
+            </button>
             {userRole === 'ZI' && (
-              <button onClick={() => setIsSettingsOpen(true)} title="Global Settings" className="w-7 h-7 bg-white/10 hover:bg-white/20 rounded transition-all flex items-center justify-center border border-white/10">
+              <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-xl flex items-center justify-center border border-white/5">
                 <SpreadsheetIcon />
               </button>
             )}
-            <button onClick={handleLogout} className="w-7 h-7 bg-red-600/10 hover:bg-red-600 rounded transition-all flex items-center justify-center"><LogOutIcon /></button>
           </div>
         </header>
 
-        <div className="mb-5 flex justify-center no-print">
-          <div className="bg-white p-0.5 rounded shadow-sm w-full max-w-sm border border-slate-200 flex items-center group">
-            <div className="ml-3 mr-2 text-slate-300 scale-75"><SearchIcon /></div>
-            <input type="text" placeholder="Quick find personnel or station..." className="bg-transparent p-1.5 text-[11px] w-full outline-none font-medium text-slate-600" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+        {/* Global Search Bar - Positioned below header */}
+        <div className="flex justify-center mt-8 animate-official">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex items-center px-6 py-4 w-full max-w-2xl group focus-within:shadow-md transition-all">
+            <SearchIcon />
+            <input 
+              type="text" 
+              placeholder="Quick find personnel or station..." 
+              className="bg-transparent ml-4 w-full outline-none text-[15px] font-medium text-slate-600 placeholder:text-slate-400"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         </div>
+      </div>
 
-        <main className="flex flex-col gap-5">
+      {/* Main Content Area */}
+      <div className="mt-10 px-4 md:px-8 max-w-[1600px] mx-auto w-full flex-1">
+        <main className="flex flex-col gap-8">
           {!isDbLoaded ? (
-            <div className="w-full flex flex-col items-center justify-center py-16 gap-3">
-              <div className="w-6 h-6 border-2 border-slate-200 border-t-[#004d40] rounded-full animate-spin"></div>
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-[8px]">Syncing Station Database...</p>
+            <div className="w-full flex flex-col items-center justify-center py-40 gap-6">
+              <div className="w-14 h-14 border-4 border-slate-200 border-t-[#004d40] rounded-full animate-spin"></div>
+              <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[11px]">Database Synchronizing...</p>
             </div>
           ) : (
             <>
-              {division === 'PERSONNEL' && <PersonnelModule entries={filteredData.personnel} db={dbRef.current} userRole={userRole} lgaContext={lgaContext} />}
-              {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
-              {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} userRole={userRole} stationDispositions={userRole === 'ZI' ? stationDispositions : stationDispositions.filter(s => s.lga === lgaContext)} />}
+              {division === 'PERSONNEL' && <FindCorpsMemberModule entries={filteredData.personnel} db={dbRef.current} userRole={userRole} lgaContext={lgaContext} isSearching={searchQuery.length > 0} />}
+              {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} userRole={userRole} stationDispositions={stationDispositions} />}
+              {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} db={dbRef.current} userRole={userRole} lga={lgaContext!} />}
               {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
               {division === 'CDS' && <CDSModule groups={filteredData.cdsGroups} projects={filteredData.cdsProjects} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
               {division === 'SAED' && <SAEDModule entries={filteredData.saed} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
@@ -237,26 +275,19 @@ const App: React.FC = () => {
       </div>
 
       {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6 animate-official">
-            <h3 className="text-[12px] font-black uppercase text-slate-800 mb-4 tracking-widest border-b pb-2">Global Settings</h3>
-            <div className="space-y-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xl z-[3000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-10 animate-official border border-slate-100">
+            <h3 className="text-lg font-black uppercase text-slate-800 mb-8 border-b border-slate-50 pb-6">Terminal Control</h3>
+            <div className="space-y-8">
                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Google Form Public URL</label>
-                  <input 
-                    className="w-full p-2 bg-slate-50 border rounded text-[11px] outline-none" 
-                    value={activeFormUrl} 
-                    onChange={async (e) => {
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-3 tracking-[0.2em]">Google Form Intake URL</label>
+                  <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 outline-none" value={activeFormUrl} onChange={async (e) => {
                       const newUrl = e.target.value;
-                      if (appSettings[0]) {
-                        await updateData(dbRef.current, "app_settings", appSettings[0].id, { googleFormUrl: newUrl });
-                      } else {
-                        await addData(dbRef.current, "app_settings", { googleFormUrl: newUrl });
-                      }
-                    }}
-                  />
+                      if (appSettings[0]) await updateData(dbRef.current, "app_settings", appSettings[0].id, { googleFormUrl: newUrl });
+                      else await addData(dbRef.current, "app_settings", { googleFormUrl: newUrl });
+                    }} />
                </div>
-               <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-[#004d40] text-white py-2 rounded text-[10px] font-bold uppercase">Save & Exit</button>
+               <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-[#004d40] text-white py-4 rounded-xl text-[11px] font-black uppercase tracking-[0.3em] active:scale-95 transition-all">Save Changes</button>
             </div>
           </div>
         </div>
@@ -265,158 +296,97 @@ const App: React.FC = () => {
   );
 };
 
-/* --- Personnel Master Registry Module --- */
-const PersonnelModule = ({ entries, db, userRole, lgaContext }: any) => {
+/* --- FIND CORPS MEMBER Module --- */
+const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching }: any) => {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsUploading(true);
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
         const lines = text.split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        
-        // Expected columns: Name, State Code, Batch, LGA, PPA, Gender
-        const dataRows = lines.slice(1).filter(line => line.trim() !== '');
-        
         let successCount = 0;
-        for (const row of dataRows) {
-          const values = row.split(',').map(v => v.trim());
-          if (values.length < 2) continue;
-
-          const payload = {
-            name: values[0] || 'Unknown',
-            stateCode: values[1] || 'N/A',
-            batch: values[2] || 'N/A',
-            lga: values[3] || 'N/A',
-            ppa: values[4] || 'N/A',
-            gender: values[5] || 'N/A',
-          };
-
-          await addData(db, "personnel_registry", payload);
+        for (const row of lines.slice(1)) {
+          const v = row.split(',').map(s => s.trim());
+          if (v.length < 2) continue;
+          await addData(db, "personnel_registry", { 
+            stateCode: v[0] || 'N/A', surname: v[1] || 'Unknown', othernames: v[2] || '', 
+            gender: v[3] || 'N/A', gsmNo: v[4] || 'N/A', company: v[5] || 'N/A', 
+            stream: v[6] || 'N/A', lga: v[7] || 'Unassigned', batch: v[8] || 'N/A' 
+          });
           successCount++;
         }
-        alert(`Registry updated: ${successCount} records imported.`);
-      } catch (err) {
-        console.error(err);
-        alert("Upload failed. Ensure CSV format: Name,StateCode,Batch,LGA,PPA,Gender");
-      } finally {
-        setIsUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
+        alert(`Synced ${successCount} records.`);
+      } catch (err) { alert("Sync error."); }
+      finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
     };
     reader.readAsText(file);
   };
 
   return (
-    <div className="w-full flex flex-col gap-6 animate-official">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+    <div className="w-full flex flex-col gap-6 animate-official min-h-[500px]">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
         <div>
-          <h2 className="text-sm font-black uppercase text-slate-800 tracking-widest font-serif-heading">Find Corps Member</h2>
-          <p className="text-[10px] text-slate-400 uppercase font-bold mt-1">Master Registry Search Engine</p>
+          <h2 className="text-[18px] font-black uppercase text-slate-800">Corps Member Search</h2>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Secretariat Repository</p>
         </div>
         {userRole === 'ZI' && (
-          <div className="flex items-center gap-2">
-            <input 
-              type="file" 
-              accept=".csv" 
-              ref={fileInputRef} 
-              onChange={handleFileUpload} 
-              className="hidden" 
-            />
-            <button 
-              onClick={() => fileInputRef.current?.click()} 
-              disabled={isUploading}
-              className="px-4 py-2 bg-[#004d40] text-white rounded text-[10px] font-black uppercase flex items-center gap-2 shadow-md disabled:opacity-50"
-            >
-              {isUploading ? 'Importing...' : <><SpreadsheetIcon /> Upload Registry (CSV)</>}
-            </button>
-            <button onClick={() => downloadCSV(entries, "Master_Personnel_Registry")} className="p-2 text-slate-400 border rounded-lg hover:bg-slate-50">
-              <DownloadIcon />
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="w-full md:w-auto px-6 py-3 bg-[#004d40] text-white rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-3">
+              <SpreadsheetIcon /> UPLOAD MASTER REGISTRY
             </button>
           </div>
         )}
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="bg-slate-50 border-b p-3 flex justify-between items-center">
-           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global Personnel Index ({entries.length})</span>
-           <div className="text-[8px] font-bold text-slate-300 uppercase italic">SEARCH BY NAME OR STATE CODE (KT/XX/XXXX)</div>
+      {!isSearching ? (
+        <div className="flex-1 flex flex-col items-center justify-center py-40 bg-white rounded-2xl border-2 border-dashed border-slate-200">
+           <SearchIcon />
+           <p className="text-slate-400 text-[12px] font-medium mt-4 uppercase tracking-[0.2em]">Enter a Name or State Code to fetch data</p>
         </div>
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full border-collapse">
-            <thead className="bg-slate-50">
-              <tr className="text-[9px] font-black uppercase text-slate-400 text-left border-b">
-                <th className="p-4">Personnel Details</th>
-                <th className="p-4">State Code</th>
-                <th className="p-4">Batch</th>
-                <th className="p-4">Station / PPA</th>
-                <th className="p-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {entries.map((p: PersonnelEntry) => (
-                <tr key={p.id} className="hover:bg-slate-50/80 transition-all group">
-                  <td className="p-4">
-                    <p className="font-black text-slate-700 text-[11px] uppercase leading-none">{p.name}</p>
-                    <p className="text-[8px] font-bold text-slate-300 mt-1 uppercase">{p.gender}</p>
-                  </td>
-                  <td className="p-4 text-[10px] font-black text-emerald-700 uppercase tracking-wider">{p.stateCode}</td>
-                  <td className="p-4">
-                    <span className="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-black text-slate-500 uppercase">{p.batch}</span>
-                  </td>
-                  <td className="p-4">
-                    <p className="text-[10px] font-bold text-slate-600 uppercase">{p.lga}</p>
-                    <p className="text-[8px] text-slate-400 uppercase mt-0.5">{p.ppa}</p>
-                  </td>
-                  <td className="p-4 text-right">
-                    <div className="flex justify-end gap-2">
-                       <button onClick={() => shareData(`Personnel: ${p.name}`, `${p.stateCode} | ${p.lga} | ${p.ppa}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded">
-                          <ShareIcon />
-                       </button>
-                       {userRole === 'ZI' && (
-                         <button onClick={() => deleteData(db, "personnel_registry", p.id)} className="p-1.5 text-red-300 hover:text-red-500 rounded">
-                            <TrashIcon />
-                         </button>
-                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {entries.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="p-20 text-center text-slate-300 font-black uppercase text-[10px]">No records match search criteria.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {entries.map((p: PersonnelEntry) => (
+            <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 hover:shadow-lg transition-all group">
+              <div className="mb-6"><span className="bg-emerald-50 text-[#004d40] text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">{p.batch} • {p.stream}</span></div>
+              <h4 className="text-[20px] font-black uppercase text-slate-800 leading-tight mb-1">{p.surname}, {p.othernames}</h4>
+              <p className="text-[12px] font-black text-[#004d40] uppercase tracking-[0.2em] mb-6">{p.stateCode}</p>
+              <div className="space-y-4 pt-6 border-t border-slate-50">
+                <div className="flex items-center gap-3 text-[12px]"><DashboardIcon /><span className="font-bold text-slate-600 uppercase">{p.lga} LGA</span></div>
+                <div className="flex items-center gap-3 text-[12px]"><FileTextIcon /><span className="font-bold text-slate-600 uppercase truncate">{p.company}</span></div>
+                <div className="flex items-center gap-3 text-[12px] font-bold text-emerald-600"><WhatsAppIcon />{p.gsmNo || 'N/A'}</div>
+              </div>
+              <div className="mt-8 flex gap-3 pt-6 border-t border-slate-50 opacity-0 group-hover:opacity-100 transition-opacity">
+                 <button onClick={() => shareData(`Personnel: ${p.surname}`, p.stateCode)} className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest">SHARE</button>
+                 {userRole === 'ZI' && <button onClick={() => deleteData(db, "personnel_registry", p.id)} className="w-12 h-12 bg-red-50 text-red-500 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"><TrashIcon /></button>}
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
-/* --- CIM Module (Rich ZI Dashboard + LGI Console) --- */
+/* --- CIM Module - Matched to Image Layout --- */
 const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => {
+  const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  const currentStationDisp = stationDispositions.find((d: any) => String(d.lga).toLowerCase() === String(lga).toLowerCase());
+  const [tempBatches, setTempBatches] = useState<CIMBatchDisposition[]>([]);
+  const [newBatch, setNewBatch] = useState({ batch: '', males: 0, females: 0 });
   const [formData, setFormData] = useState({ month: '' });
   const [clearedBatches, setClearedBatches] = useState<CIMBatchDisposition[]>([]);
   const [newClearedBatch, setNewClearedBatch] = useState({ batch: '', males: 0, females: 0 });
-  const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, reason: string, gender: 'Male' | 'Female', ppa?: string}[]>([]);
-  const [newDefaulter, setNewDefaulter] = useState({ name: '', code: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' as 'Male' | 'Female', ppa: '' });
-  const [isLedgerOpen, setIsLedgerOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isDispBreakdownOpen, setIsDispBreakdownOpen] = useState(false);
-  const [isLgaDetailOpen, setIsLgaDetailOpen] = useState(false);
-
-  const currentStationDisp = stationDispositions.find((d: any) => d.lga === lga);
-  const [tempBatches, setTempBatches] = useState<CIMBatchDisposition[]>([]);
-  const [newBatch, setNewBatch] = useState({ batch: '', males: 0, females: 0 });
+  const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, ppa: string, gsmNo: string, reason: string, gender: 'Male' | 'Female'}[]>([]);
+  const [newDefaulter, setNewDefaulter] = useState({ name: '', code: '', ppa: '', gsmNo: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' as 'Male' | 'Female' });
 
   useEffect(() => {
     if (currentStationDisp?.batches) setTempBatches(currentStationDisp.batches);
@@ -425,751 +395,408 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
 
   const handleSaveStationDisposition = async () => {
     const data = { lga, batches: tempBatches, totalMales: tempBatches.reduce((a,b)=>a+b.males,0), totalFemales: tempBatches.reduce((a,b)=>a+b.females,0), lastUpdated: new Date().toISOString() };
-    try {
-      if (currentStationDisp) await updateData(db, "station_disposition", currentStationDisp.id, data);
-      else await addData(db, "station_disposition", data);
-      window.alert("Population synchronized successfully.");
-    } catch { window.alert("Sync Error."); }
-  };
-
-  const handleIssueQuery = async (cm: any) => {
-    setIsGenerating(true);
-    try {
-      const ppaVal = cm.ppa || `LGA HQ: ${cm.lga || lga}`;
-      const content = await generateDisciplinaryQuery(cm.name, cm.code, cm.lga || lga, `Biometric Default (${cm.month})`, ppaVal);
-      const payload = { 
-        name: cm.name, stateCode: cm.code, lga: cm.lga || lga, ppa: ppaVal, 
-        misconduct: `BIOMETRIC DEFAULT - ${cm.month}`, status: 'Pending' as CDRStatus,
-        responseContent: content, month: cm.month, dateOfInfraction: new Date().toISOString()
-      };
-      await addData(db, "cdr_cases", payload);
-      generateOfficialPDF(payload, 'DISCIPLINARY_QUERY');
-      window.alert("Query Issued and Case pushed to CD&R.");
-    } catch { window.alert("Error issuing query."); } finally { setIsGenerating(false); }
-  };
-
-  const handleAuditMinute = async (auditId: string, minuteText: string) => {
-    await updateData(db, "cim_clearance", auditId, { ziMinute: minuteText });
-  };
-
-  const handleDefaulterMinute = async (auditId: string, cmCode: string, minuteText: string) => {
-    const audit = entries.find((e: any) => e.id === auditId);
-    if (!audit) return;
-    const newList = audit.unclearedList.map((cm: any) => cm.code === cmCode ? { ...cm, ziMinute: minuteText } : cm);
-    await updateData(db, "cim_clearance", auditId, { unclearedList: newList });
+    if (currentStationDisp) await updateData(db, "station_disposition", currentStationDisp.id, data);
+    else await addData(db, "station_disposition", data);
+    window.alert("Population synced.");
   };
 
   const handleSubmitAudit = async (e: any) => {
     e.preventDefault();
-    if (!formData.month) return alert("Select Month.");
+    if (!formData.month) return alert("Select audit month.");
     const totalM = clearedBatches.reduce((a,b)=>a+b.males,0);
     const totalF = clearedBatches.reduce((a,b)=>a+b.females,0);
-    const data = { 
-      month: formData.month, 
-      lga, 
-      maleCount: totalM, 
-      femaleCount: totalF, 
-      clearedCount: totalM+totalF, 
-      totalCMs: totalM+totalF+tempUnclearedList.length, 
-      unclearedList: tempUnclearedList.map(u => ({...u, month: formData.month})), 
-      batchClearance: clearedBatches, 
-      dateAdded: new Date().toISOString() 
-    };
+    const data = { month: formData.month, lga, maleCount: totalM, femaleCount: totalF, clearedCount: totalM+totalF, totalCMs: totalM+totalF+tempUnclearedList.length, unclearedList: tempUnclearedList.map(u => ({...u, month: formData.month})), batchClearance: clearedBatches, dateAdded: new Date().toISOString() };
     await addData(db, "cim_clearance", data);
     setFormData({month:''}); setClearedBatches([]); setTempUnclearedList([]);
-    window.alert("Monthly Audit Successfully Filed.");
+    window.alert("Audit published.");
   };
 
-  const aggregates = useMemo(() => {
-    const totalCleared = entries.reduce((acc: number, e: any) => acc + (e.clearedCount || 0), 0);
-    const totalDefaulters = entries.reduce((acc: number, e: any) => acc + (e.unclearedList?.length || 0), 0);
-    const uniqueLgas = new Set(entries.map((e: any) => e.lga)).size;
-    const totalDispMales = stationDispositions.reduce((acc: number, d: any) => acc + (d.totalMales || 0), 0);
-    const totalDispFemales = stationDispositions.reduce((acc: number, d: any) => acc + (d.totalFemales || 0), 0);
-    const zonalBatches: Record<string, {males: number, females: number}> = {};
-    stationDispositions.forEach((disp: any) => {
-      disp.batches?.forEach((b: any) => {
-        if (!zonalBatches[b.batch]) zonalBatches[b.batch] = {males: 0, females: 0};
-        zonalBatches[b.batch].males += b.males || 0;
-        zonalBatches[b.batch].females += b.females || 0;
-      });
-    });
-    return { totalCleared, totalDefaulters, uniqueLgas, totalDispMales, totalDispFemales, zonalBatches };
-  }, [entries, stationDispositions]);
-
-  if (userRole === 'ZI') {
-    return (
-      <div className="w-full flex flex-col gap-5 animate-official">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 shadow-xl flex flex-col items-center relative overflow-hidden text-white">
-            <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Zonal Population Aggregate</span>
-            <span className="text-3xl font-black font-serif-heading">{(aggregates.totalDispMales + aggregates.totalDispFemales).toLocaleString()}</span>
-            <div className="flex gap-4 mt-1 border-t border-white/10 pt-1 w-full justify-center">
-               <span className="text-[10px] font-bold text-blue-400">Males: {aggregates.totalDispMales.toLocaleString()}</span>
-               <span className="text-[10px] font-bold text-pink-400">Females: {aggregates.totalDispFemales.toLocaleString()}</span>
-            </div>
-            <div className="absolute bottom-1 right-1 flex gap-1">
-               <button onClick={() => downloadCSV(Object.entries(aggregates.zonalBatches).map(([b, c]) => ({ Batch: b, ...(c as any) })), "Zonal_Batch_Distribution")} className="p-1 hover:bg-white/10 rounded"><SpreadsheetIcon /></button>
-            </div>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Cleared (Cumulative)</span>
-            <span className="text-3xl font-black text-emerald-600 font-serif-heading">{aggregates.totalCleared.toLocaleString()}</span>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center text-center">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Biometric Defaulters</span>
-            <span className="text-3xl font-black text-red-600 font-serif-heading">{aggregates.totalDefaulters.toLocaleString()}</span>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Reporting Stations</span>
-            <span className="text-3xl font-black text-[#004d40] font-serif-heading">{aggregates.uniqueLgas} / {LGAS.length}</span>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-           <div className="p-3 bg-slate-800 text-white flex justify-between items-center cursor-pointer hover:bg-black transition-all" onClick={() => setIsDispBreakdownOpen(!isDispBreakdownOpen)}>
-              <div className="flex items-center gap-3">
-                 <DashboardIcon />
-                 <h3 className="text-[11px] font-black uppercase tracking-widest">Global Zonal Batch Distribution</h3>
-              </div>
-              <span className="text-xs font-bold">{isDispBreakdownOpen ? '− Hide' : '+ Show Detail'}</span>
-           </div>
-           {isDispBreakdownOpen && (
-             <div className="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 bg-slate-50 animate-official border-b">
-                {Object.entries(aggregates.zonalBatches).map(([batch, counts]: [string, any]) => (
-                  <div key={batch} className="p-3 bg-white rounded border border-slate-200 shadow-sm flex flex-col items-center">
-                     <p className="text-[10px] font-black text-slate-800 uppercase mb-2 text-center border-b border-slate-100 pb-1 w-full">{batch}</p>
-                     <div className="flex justify-between w-full text-[12px] font-black px-2">
-                        <span className="text-blue-600">M: {counts.males}</span>
-                        <span className="text-pink-600">F: {counts.females}</span>
-                     </div>
-                     <p className="text-[8px] font-bold text-slate-400 uppercase mt-2">Zone Total: {counts.males + counts.females}</p>
-                  </div>
-                ))}
-             </div>
-           )}
-        </div>
-
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-           <div className="p-3 bg-emerald-700 text-white flex justify-between items-center cursor-pointer hover:bg-emerald-800 transition-all" onClick={() => setIsLgaDetailOpen(!isLgaDetailOpen)}>
-              <div className="flex items-center gap-3">
-                 <FileTextIcon />
-                 <h3 className="text-[11px] font-black uppercase tracking-widest">Station Census breakdown</h3>
-              </div>
-              <span className="text-xs font-bold">{isLgaDetailOpen ? '− Hide' : '+ View LGA Batches'}</span>
-           </div>
-           {isLgaDetailOpen && (
-             <div className="p-4 bg-white space-y-4 animate-official overflow-y-auto max-h-[500px] custom-scrollbar">
-                {LGAS.map(lgaName => {
-                  const disp = stationDispositions.find((d: any) => d.lga === lgaName);
-                  return (
-                    <div key={lgaName} className="border border-slate-100 rounded-lg overflow-hidden shadow-sm">
-                       <div className="bg-slate-50 px-3 py-2 border-b flex justify-between items-center">
-                          <h4 className="text-[11px] font-black text-slate-700 uppercase">{lgaName} Command</h4>
-                          <div className="flex gap-3 text-[10px] font-black">
-                             <span className="text-blue-600">Males: {disp?.totalMales || 0}</span>
-                             <span className="text-pink-600">Females: {disp?.totalFemales || 0}</span>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-2 bg-slate-50/20">
-                          {disp?.batches?.map((b: any, i: number) => (
-                            <div key={i} className="p-2 bg-white rounded border border-slate-100 text-center shadow-xs">
-                               <p className="text-[8px] font-black text-slate-400 uppercase">{b.batch}</p>
-                               <p className="text-[10px] font-black flex justify-between px-1">
-                                  <span className="text-blue-500">M:{b.males}</span>
-                                  <span className="text-pink-500">F:{b.females}</span>
-                               </p>
-                            </div>
-                          )) || <p className="col-span-full text-center text-[9px] text-slate-300 py-2">No records synchronized.</p>}
-                       </div>
-                    </div>
-                  );
-                })}
-             </div>
-           )}
-        </div>
-
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-[#004d40] p-3 text-white flex justify-between items-center">
-             <h3 className="text-[11px] font-bold uppercase tracking-widest">Global Audit Ledger</h3>
-             <div className="flex gap-2">
-                <button onClick={() => downloadCSV(entries, "Global_CIM_Audit")} className="p-1 hover:bg-white/10 rounded"><SpreadsheetIcon /></button>
-                <button onClick={() => setIsLedgerOpen(true)} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[9px] font-bold uppercase border border-white/20">Defaulter Master Registry</button>
-             </div>
-          </div>
-          <div className="overflow-auto custom-scrollbar">
-            <table className="w-full border-collapse">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr className="text-[9px] font-bold uppercase text-slate-400 text-left">
-                  <th className="p-3">Station</th>
-                  <th className="p-3">Population (M/F)</th>
-                  <th className="p-3">Latest Audit</th>
-                  <th className="p-3 text-center">Cleared</th>
-                  <th className="p-3 text-center">Defaulters</th>
-                  <th className="p-3">ZI Instruction</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {LGAS.map(lgaName => {
-                  const lgaEntries = entries.filter((e: any) => e.lga === lgaName);
-                  const lgaDisp = stationDispositions.find((d: any) => d.lga === lgaName);
-                  const latest = lgaEntries[0];
-                  return (
-                    <tr key={lgaName} className={`hover:bg-slate-50 transition-all ${lgaEntries.length === 0 ? 'opacity-40' : ''}`}>
-                      <td className="p-3 font-bold text-slate-800">{lgaName}</td>
-                      <td className="p-3">
-                         {lgaDisp ? (
-                           <div className="flex gap-2 text-[10px] font-black">
-                             <span className="text-blue-600">M: {lgaDisp.totalMales}</span>
-                             <span className="text-pink-600">F: {lgaDisp.totalFemales}</span>
-                           </div>
-                         ) : <span className="text-[9px] text-slate-300">--</span>}
-                      </td>
-                      <td className="p-3 font-medium text-slate-600">{latest?.month || '---'}</td>
-                      <td className="p-3 text-center font-black text-emerald-600">{latest?.clearedCount || 0}</td>
-                      <td className="p-3 text-center font-black text-red-600">{latest?.unclearedList?.length || 0}</td>
-                      <td className="p-3">
-                        <textarea className="w-full bg-slate-50 border p-1 rounded text-[8px] h-10 outline-none" placeholder="Directive..." defaultValue={latest?.ziMinute} onBlur={(e) => latest && handleAuditMinute(latest.id, e.target.value)} />
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex justify-end gap-1">
-                          {latest && (
-                            <>
-                              <button onClick={() => generateOfficialPDF(latest, 'CIM_AUDIT')} className="p-1.5 text-slate-400 hover:text-[#004d40]"><DownloadIcon /></button>
-                              <button onClick={() => shareData(`Audit: ${lgaName}`, `Month: ${latest.month}`)} className="p-1.5 text-slate-400 hover:text-[#004d40]"><ShareIcon /></button>
-                              <button onClick={() => deleteData(db, "cim_clearance", latest.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><TrashIcon /></button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {isLedgerOpen && (
-          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-4xl rounded-lg shadow-2xl flex flex-col h-[85vh] animate-official">
-              <div className="bg-[#004d40] p-4 text-white flex justify-between items-center shrink-0">
-                 <h3 className="text-[14px] font-black uppercase tracking-tight">Personnel Defaulter Master Registry</h3>
-                 <button onClick={() => setIsLedgerOpen(false)} className="text-xl hover:text-red-200 transition-colors">✕</button>
-              </div>
-              <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-                 <table className="w-full">
-                    <thead className="text-[8px] font-bold uppercase text-slate-400 text-left border-b"><tr className="pb-1"><th>Corps Member</th><th>Station</th><th>ZI Directive</th><th className="text-right">Desk Action</th></tr></thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, auditId: entry.id }))], []).map((cm: any, idx: number) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-all">
-                            <td className="py-2">
-                              <p className="font-bold text-slate-700 text-[11px] uppercase">{cm.name}</p>
-                              <p className="text-[8px] font-bold text-emerald-800 opacity-60 uppercase">{cm.code} • {cm.month}</p>
-                            </td>
-                            <td className="py-2 text-[9px] font-bold text-slate-400 uppercase">{cm.ppa || cm.lga}</td>
-                            <td className="py-2">
-                               <textarea className="w-full p-1 bg-white border rounded text-[9px] outline-none h-12" placeholder="Issue minute..." defaultValue={cm.ziMinute} onBlur={(e) => handleDefaulterMinute(cm.auditId, cm.code, e.target.value)} />
-                            </td>
-                            <td className="py-2 text-right">
-                               <div className="flex items-center justify-end gap-1.5">
-                                 <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1 bg-[#004d40] text-white text-[8px] font-bold uppercase rounded hover:bg-black disabled:opacity-50 transition-all">Generate Query</button>
-                                 <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Administrative Notice: ${cm.name} (${cm.code}) defaulted in ${cm.month} clearance.`)}`)} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-white border rounded hover:shadow-md"><WhatsAppIcon /></button>
-                               </div>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                 </table>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
+  const handleIssueQuery = async (cm: any) => {
+    try {
+      setIsGenerating(true);
+      const narrative = await generateDisciplinaryQuery(cm.name, cm.code, lga, cm.reason || 'BIOMETRIC DEFAULT', cm.ppa || 'Not Specified');
+      generateOfficialPDF({ ...cm, lga, letterText: narrative, month: cm.month }, 'DISCIPLINARY_QUERY');
+    } catch (err) {
+      alert("Documentation failed.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
-    <>
-      <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Station Population Console</h3>
-          <div className="space-y-1 mb-3 max-h-[140px] overflow-auto pr-1 custom-scrollbar">
+    <div className="flex flex-col lg:flex-row gap-8 animate-official items-start">
+      {/* Left Sidebar Terminals */}
+      <div className="w-full lg:w-[350px] flex flex-col gap-6 no-print shrink-0">
+        {/* Population Console */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold uppercase text-[9px] mb-6 text-slate-400 text-center tracking-widest">STATION POPULATION CONSOLE</h3>
+          <div className="space-y-2 mb-6">
             {tempBatches.map((b, i) => (
-              <div key={i} className="p-2 bg-slate-50 rounded border border-slate-100 flex justify-between items-center group">
-                <div className="flex flex-col">
-                  <p className="text-[9px] font-black text-slate-800 uppercase leading-none">{b.batch}</p>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">M: {b.males} | F: {b.females}</p>
+              <div key={i} className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-lg flex justify-between items-center group">
+                <div>
+                   <p className="text-[11px] font-black text-slate-800 uppercase leading-none mb-1">{b.batch}</p>
+                   <p className="text-[9px] font-bold text-slate-400 uppercase">M: {b.males} | F: {b.females}</p>
                 </div>
-                <button onClick={() => setTempBatches(tempBatches.filter((_, idx) => idx !== i))} className="text-red-200 hover:text-red-500"><TrashIcon /></button>
+                <button onClick={() => setTempBatches(tempBatches.filter((_, idx) => idx !== i))} className="text-red-200 hover:text-red-500 transition-colors"><TrashIcon /></button>
               </div>
             ))}
           </div>
-          <div className="space-y-1.5 bg-slate-50 p-2 rounded border border-slate-100">
-             <input placeholder="BATCH NAME" className="w-full p-1.5 bg-white rounded border border-slate-200 text-[10px] uppercase outline-none font-bold" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
-             <div className="grid grid-cols-2 gap-1.5">
-                <input type="number" placeholder="Males" className="p-1.5 bg-white rounded border border-slate-200 text-[10px] font-bold" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
-                <input type="number" placeholder="Females" className="p-1.5 bg-white rounded border border-slate-200 text-[10px] font-bold" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
+          <div className="space-y-3 p-4 bg-slate-50/50 rounded-xl border border-slate-100 mb-4">
+             <input placeholder="BATCH NAME" className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[11px] font-black uppercase outline-none" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
+             <div className="grid grid-cols-2 gap-3">
+                <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
+                <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
              </div>
-             <button onClick={() => { if(newBatch.batch) {setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'',males:0,females:0});} }} className="w-full py-1.5 bg-[#004d40] text-white rounded text-[8px] font-bold uppercase flex items-center justify-center gap-1"><PlusIcon /> Add Batch</button>
+             <button onClick={() => { if(newBatch.batch) {setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'',males:0,females:0});} }} className="w-full py-3 bg-[#004d40] text-white rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-2"><PlusIcon /> ADD BATCH</button>
           </div>
-          <button onClick={handleSaveStationDisposition} className="w-full mt-2 bg-emerald-700 text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm">Sync Final Disposition</button>
+          <button onClick={handleSaveStationDisposition} className="w-full py-3.5 bg-[#00695c] text-white rounded-lg font-black uppercase text-[10px] tracking-wider shadow-lg active:scale-95 transition-all">SYNC FINAL DISPOSITION</button>
         </div>
 
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="font-bold uppercase text-[7px] mb-3 text-slate-400 text-center tracking-widest">Monthly Audit terminal</h3>
-          <form onSubmit={handleSubmitAudit} className="space-y-2">
-            <input required placeholder="MONTH & YEAR" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
+        {/* Audit Terminal */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold uppercase text-[9px] mb-6 text-slate-400 text-center tracking-widest">MONTHLY AUDIT TERMINAL</h3>
+          <form onSubmit={handleSubmitAudit} className="space-y-6">
+            <input required placeholder="MONTH & YEAR" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-lg text-[13px] font-black uppercase outline-none focus:bg-white transition-all text-center" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
             
-            <div className="p-2 bg-emerald-50/40 rounded border border-emerald-100 space-y-1.5">
-               <label className="text-[7px] font-bold uppercase text-emerald-800">1. Cleared Count</label>
-               <select className="w-full p-1.5 bg-white rounded border border-slate-200 text-[9px] font-bold uppercase" onChange={e => setNewClearedBatch({...newClearedBatch, batch: e.target.value})} value={newClearedBatch.batch}>
-                 <option value="">Select Batch...</option>
+            <div className="p-5 bg-emerald-50/20 rounded-xl border border-emerald-100/30 space-y-4">
+               <label className="text-[9px] font-black uppercase text-emerald-800 block mb-1">1. CLEARED COUNT</label>
+               <select className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-black uppercase outline-none" onChange={e => setNewClearedBatch({...newClearedBatch, batch: e.target.value})} value={newClearedBatch.batch}>
+                 <option value="">SELECT BATCH...</option>
                  {tempBatches.map(b => <option key={b.batch} value={b.batch}>{b.batch}</option>)}
                </select>
-               <div className="grid grid-cols-2 gap-1.5">
-                  <input type="number" placeholder="Males" className="p-1.5 bg-white rounded border border-slate-200 text-[9px] font-bold" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt(e.target.value) || 0})} />
-                  <input type="number" placeholder="Females" className="p-1.5 bg-white rounded border border-slate-200 text-[9px] font-bold" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt(e.target.value) || 0})} />
+               <div className="grid grid-cols-2 gap-3">
+                  <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt(e.target.value) || 0})} />
+                  <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt(e.target.value) || 0})} />
                </div>
-               <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'',males:0,females:0}); } }} className="w-full py-1 bg-[#004d40] text-white rounded text-[8px] font-bold uppercase">Include Count</button>
+               <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'',males:0,females:0}); } }} className="w-full py-2.5 bg-[#004d40] text-white rounded-lg text-[9px] font-black uppercase active:scale-95">INCLUDE COUNT</button>
             </div>
 
-            <div className="p-2 bg-red-50/40 rounded border border-red-100 space-y-1.5">
-               <label className="text-[7px] font-bold uppercase text-red-800">2. Register Defaulter</label>
-               <input placeholder="PERSONNEL NAME" className="w-full p-1.5 bg-white border rounded text-[9px] uppercase font-bold outline-none" value={newDefaulter.name} onChange={e => setNewDefaulter({...newDefaulter, name: e.target.value.toUpperCase()})} />
-               <input placeholder="STATE CODE" className="w-full p-1.5 bg-white border rounded text-[9px] uppercase font-bold outline-none" value={newDefaulter.code} onChange={e => setNewDefaulter({...newDefaulter, code: e.target.value.toUpperCase()})} />
-               <input placeholder="PPA" className="w-full p-1.5 bg-white border rounded text-[9px] uppercase font-bold outline-none" value={newDefaulter.ppa} onChange={e => setNewDefaulter({...newDefaulter, ppa: e.target.value.toUpperCase()})} />
-               <select className="w-full p-1.5 bg-white border rounded text-[9px] font-bold uppercase outline-none" value={newDefaulter.reason} onChange={e => setNewDefaulter({...newDefaulter, reason: e.target.value})}>
-                  <option value="BIOMETRIC DEFAULT">Biometric Default</option>
-                  <option value="UNAUTHORIZED ABSENCE">Unauthorized Absence</option>
+            <div className="p-5 bg-red-50/20 rounded-xl border border-red-100/30 space-y-4">
+               <label className="text-[9px] font-black uppercase text-red-800 block mb-1">2. REGISTER DEFAULTER</label>
+               <input placeholder="PERSONNEL NAME" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.name} onChange={e => setNewDefaulter({...newDefaulter, name: e.target.value.toUpperCase()})} />
+               <input placeholder="STATE CODE" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.code} onChange={e => setNewDefaulter({...newDefaulter, code: e.target.value.toUpperCase()})} />
+               <select className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[11px] font-black uppercase" value={newDefaulter.reason} onChange={e => setNewDefaulter({...newDefaulter, reason: e.target.value})}>
+                  <option value="BIOMETRIC DEFAULT">BIOMETRIC DEFAULT</option>
+                  <option value="PPA ABSENCE">PPA ABSENCE</option>
+                  <option value="UNAUTHORIZED JOURNEY">UNAUTHORIZED JOURNEY</option>
                </select>
-               <button type="button" onClick={() => { if(newDefaulter.name && newDefaulter.code) { setTempUnclearedList([...tempUnclearedList, newDefaulter]); setNewDefaulter({ name: '', code: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male', ppa: '' }); } }} className="w-full py-1 bg-red-600 text-white rounded text-[8px] font-bold uppercase">Flag Personnel</button>
+               <button type="button" onClick={() => { if(newDefaulter.name && newDefaulter.code) { setTempUnclearedList([...tempUnclearedList, newDefaulter]); setNewDefaulter({ name: '', code: '', ppa: '', gsmNo: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' }); } }} className="w-full py-3 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase shadow-lg shadow-red-900/10 active:scale-95 transition-all">FLAG PERSONNEL</button>
             </div>
-
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm hover:bg-black transition-all">Submit Monthly Audit</button>
+            
+            <button className="w-full bg-[#004d40] text-white py-4 rounded-lg font-black uppercase text-[10px] tracking-wider shadow-xl active:scale-95 transition-all">SUBMIT MONTHLY AUDIT</button>
           </form>
         </div>
       </div>
 
-      <div className="flex-1 space-y-4">
-        <div className="bg-slate-900 rounded-lg shadow-xl p-5 text-white flex flex-col md:flex-row justify-between items-center gap-6 animate-official relative overflow-hidden">
-           <div className="absolute right-0 top-0 opacity-10 scale-150 -translate-y-4 translate-x-4"><DashboardIcon /></div>
-           <div className="z-10 text-center md:text-left">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 mb-1">Local Station Biometric Statistics</h2>
-              <div className="flex items-baseline gap-2">
-                 <span className="text-4xl font-black font-serif-heading">{(currentStationDisp?.totalMales + currentStationDisp?.totalFemales || 0).toLocaleString()}</span>
-                 <span className="text-[8px] font-bold uppercase tracking-widest opacity-40">Registered Corps Members</span>
+      {/* Right Content Area - Matched exactly to visual design */}
+      <div className="flex-1 space-y-8 w-full">
+        {/* Statistics Dashboard Card */}
+        <div className="bg-[#0f172a] rounded-xl shadow-2xl p-10 text-white flex flex-col md:flex-row justify-between items-center border border-white/5 relative overflow-hidden animate-official">
+           <div className="mb-10 md:mb-0 z-10 text-center md:text-left">
+              <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400 mb-4 opacity-80">LOCAL STATION BIOMETRIC STATISTICS</h2>
+              <div className="flex items-center gap-8 justify-center md:justify-start">
+                <span className="text-7xl font-black font-serif-heading">{(currentStationDisp?.totalMales + currentStationDisp?.totalFemales || 0)}</span>
+                <div className="h-12 w-px bg-white/10 hidden md:block"></div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none hidden md:block">REGISTERED<br/>CORPS MEMBERS</span>
               </div>
            </div>
-           <div className="flex gap-8 z-10 border-l border-white/10 pl-8">
+           
+           <div className="flex gap-20 items-center z-10 md:pr-12">
               <div className="text-center">
-                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Males</p>
-                 <p className="text-2xl font-black text-blue-400">{(currentStationDisp?.totalMales || 0).toLocaleString()}</p>
+                <p className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-widest">MALES</p>
+                <p className="text-5xl font-black text-blue-400">{(currentStationDisp?.totalMales || 0)}</p>
               </div>
               <div className="text-center">
-                 <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Females</p>
-                 <p className="text-2xl font-black text-pink-400">{(currentStationDisp?.totalFemales || 0).toLocaleString()}</p>
+                <p className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-widest">FEMALES</p>
+                <p className="text-5xl font-black text-pink-400">{(currentStationDisp?.totalFemales || 0)}</p>
               </div>
            </div>
-           <div className="flex items-center gap-2 z-10">
-              <button onClick={() => downloadCSV(tempBatches, `${lga}_Station_Stats`)} className="p-2 bg-white/10 hover:bg-white/20 rounded border border-white/20"><SpreadsheetIcon /></button>
-              <button onClick={() => setIsLedgerOpen(true)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded text-[9px] font-black uppercase shadow-lg transition-all">Defaulter Logs</button>
+
+           <div className="flex gap-4 items-center z-10 w-full md:w-auto mt-8 md:mt-0">
+              <button className="bg-white/5 hover:bg-white/10 p-3.5 rounded-xl border border-white/10 transition-all"><SpreadsheetIcon /></button>
+              <button onClick={() => setIsLedgerOpen(true)} className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-950/40">DEFAULTER LOGS</button>
            </div>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1 px-1">Submitted Monthly Audits</p>
-          {entries.map((e: CIMClearance) => (
-            <div key={e.id} className="bg-white p-3 rounded border border-slate-200 flex flex-col hover:bg-slate-50 transition-all group shadow-sm animate-official">
-               <div className="flex justify-between items-center mb-2">
-                 <div>
-                   <h4 className="text-[12px] font-black uppercase text-slate-800 leading-none">{e.month}</h4>
-                   <p className="text-[7px] font-bold text-slate-400 uppercase mt-1">Audit Record • {new Date(e.dateAdded).toLocaleDateString()}</p>
-                 </div>
-                 <div className="flex gap-4 items-center">
-                   <div className="text-center">
-                     <span className="block text-[14px] font-black text-emerald-600 leading-none">{e.clearedCount}</span>
-                     <span className="text-[7px] font-bold text-slate-300 uppercase block">Cleared</span>
+        {/* Audit History Card List */}
+        <div>
+           <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest px-1">SUBMITTED MONTHLY AUDITS</h3>
+           <div className="space-y-6">
+            {entries.map((e: CIMClearance) => (
+              <div key={e.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden animate-official group p-10 hover:shadow-md transition-all duration-300">
+                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                   <div>
+                     <h4 className="text-[22px] font-black uppercase text-slate-800 tracking-tight leading-none mb-2">{e.month}</h4>
+                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest opacity-60">AUDIT RECORD • {new Date(e.dateAdded).toLocaleDateString('en-GB')}</p>
                    </div>
-                   <div className="text-center">
-                     <span className="block text-[14px] font-black text-red-600 leading-none">{e.unclearedList?.length || 0}</span>
-                     <span className="text-[7px] font-bold text-slate-300 uppercase block">Flagged</span>
-                   </div>
-                   <div className="flex gap-1 no-print opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button onClick={() => shareData(`CIM Report for ${e.month}`, `Cleared: ${e.clearedCount}`)} className="w-6 h-6 flex items-center justify-center text-blue-600 bg-blue-50 rounded border scale-75 hover:shadow-md transition-all"><ShareIcon /></button>
-                     <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="w-6 h-6 flex items-center justify-center text-emerald-600 bg-emerald-50 rounded border scale-75 hover:shadow-md transition-all"><DownloadIcon /></button>
-                     <button onClick={() => deleteData(db, "cim_clearance", e.id)} className="w-6 h-6 flex items-center justify-center text-red-200 bg-red-50/10 rounded border scale-75 hover:bg-red-600 hover:text-white transition-all"><TrashIcon /></button>
+                   <div className="flex items-center gap-14 md:ml-auto">
+                     <div className="text-center">
+                       <span className="block text-4xl font-black text-emerald-600 mb-0.5">{e.clearedCount}</span>
+                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">CLEARED</span>
+                     </div>
+                     <div className="text-center">
+                       <span className="block text-4xl font-black text-red-500 mb-0.5">{e.unclearedList?.length || 0}</span>
+                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">FLAGGED</span>
+                     </div>
                    </div>
                  </div>
-               </div>
-               {e.ziMinute && (
-                 <div className="p-2 bg-emerald-50 rounded border border-emerald-100 mt-1 relative">
-                   <p className="text-[7px] font-black text-emerald-800 uppercase tracking-widest mb-1">Zonal HQ Directive:</p>
-                   <p className="text-[10px] text-slate-600 leading-relaxed italic">"{e.ziMinute}"</p>
+                 
+                 <div className="bg-[#f0f9f6] p-6 rounded-xl border border-emerald-100/50">
+                    <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-2">ZONAL HQ DIRECTIVE:</p>
+                    <p className="text-[14px] text-slate-600 italic font-medium leading-relaxed">
+                       "{e.ziMinute || 'Kindly generate a query for any clearance defaulter.'}"
+                    </p>
                  </div>
-               )}
-            </div>
-          ))}
-          {entries.length === 0 && <p className="text-center text-slate-300 font-black uppercase text-[9px] py-12">No station audits filed yet.</p>}
+              </div>
+            ))}
+            {entries.length === 0 && (
+              <div className="py-20 text-center bg-white rounded-xl border border-slate-200">
+                <p className="text-slate-300 uppercase font-black text-[11px] tracking-widest">No audit reports documented.</p>
+              </div>
+            )}
+           </div>
         </div>
       </div>
-      
+
+      {/* Defaulter Ledger Modal */}
       {isLedgerOpen && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl rounded-lg shadow-2xl flex flex-col h-[85vh] animate-official">
-            <div className="bg-[#004d40] p-4 text-white flex justify-between items-center shrink-0">
-               <h3 className="text-[14px] font-black uppercase tracking-tight">Personnel Defaulter Registry ({lga})</h3>
-               <button onClick={() => setIsLedgerOpen(false)} className="text-xl hover:text-red-200 transition-colors">✕</button>
-            </div>
-            <div className="flex-1 overflow-auto p-4 custom-scrollbar">
-               <table className="w-full">
-                  <thead className="text-[8px] font-bold uppercase text-slate-400 text-left border-b"><tr className="pb-1"><th>Corps Member Detail</th><th>Administrative Station</th><th>Directive Trace</th><th className="text-right">Action Desk</th></tr></thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {entries.reduce((acc: any[], entry: any) => [...acc, ...(entry.unclearedList || []).map((cm: any) => ({ ...cm, lga: entry.lga, month: entry.month, auditId: entry.id }))], []).map((cm: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-slate-50 transition-all group">
-                          <td className="py-3">
-                            <p className="font-black text-slate-700 text-[11px] uppercase">{cm.name}</p>
-                            <p className="text-[8px] font-bold text-emerald-800 opacity-60 uppercase">{cm.code} • {cm.month} Clearance</p>
-                          </td>
-                          <td className="py-3 text-[9px] font-bold text-slate-400 uppercase">{cm.ppa || `STATION: ${cm.lga}`}</td>
-                          <td className="py-3">
-                             <div className="p-1.5 bg-white border rounded text-[9px] min-h-[40px] italic text-slate-500">
-                                {cm.ziMinute || 'Awaiting ZI review...'}
-                             </div>
-                          </td>
-                          <td className="py-3 text-right">
-                             <div className="flex items-center justify-end gap-1.5">
-                               <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className="px-3 py-1.5 bg-[#004d40] text-white text-[9px] font-black uppercase rounded shadow-sm hover:bg-black disabled:opacity-50 transition-all">Issue Query</button>
-                               <button onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Administrative Notice: ${cm.name} (${cm.code}) defaulted in biometric clearance for ${cm.month}. Report to the Secretariat immediately.`)}`)} className="w-7 h-7 flex items-center justify-center text-emerald-600 bg-white border rounded hover:shadow-md transition-all"><WhatsAppIcon /></button>
-                             </div>
-                          </td>
-                        </tr>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[3000] flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-6xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-official">
+              <div className="p-8 bg-slate-50 border-b flex justify-between items-center shrink-0">
+                 <div>
+                    <h3 className="text-xl font-black uppercase tracking-tight text-slate-800">Defaulter Registry</h3>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Live audit trail for unit command</p>
+                 </div>
+                 <button onClick={() => setIsLedgerOpen(false)} className="w-12 h-12 flex items-center justify-center text-slate-300 hover:text-slate-800 rounded-full hover:bg-slate-100 transition-all font-black text-xl">✕</button>
+              </div>
+              <div className="flex-1 overflow-auto p-8 custom-scrollbar">
+                 <table className="w-full text-left">
+                    <thead className="text-[11px] font-black uppercase text-slate-300 border-b border-slate-50 pb-6">
+                       <tr>
+                          <th className="p-5">PERSONNEL</th>
+                          <th className="p-5">DETAILS</th>
+                          <th className="p-5">PERIOD</th>
+                          <th className="p-5">CASE REASON</th>
+                          <th className="p-5 text-right">ACTION</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {entries.reduce((acc: any[], e: any) => [...acc, ...(e.unclearedList || []).map((u: any) => ({ ...u, lga: e.lga, month: e.month }))], []).map((cm: any, idx: number) => (
+                         <tr key={idx} className="hover:bg-slate-50/50 transition-all group">
+                            <td className="p-5">
+                               <p className="font-black text-slate-800 text-[15px] uppercase mb-0.5">{cm.name}</p>
+                               <p className="text-[11px] font-black text-emerald-700 tracking-widest">{cm.code}</p>
+                            </td>
+                            <td className="p-5">
+                               <p className="text-[12px] text-slate-600 uppercase font-black">{cm.ppa || '--'}</p>
+                            </td>
+                            <td className="p-5 text-[12px] text-slate-500 font-bold uppercase">{cm.month}</td>
+                            <td className="p-5"><span className="text-[11px] text-red-500 uppercase font-black tracking-tight flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>{cm.reason}</span></td>
+                            <td className="p-5 text-right">
+                               <button onClick={() => handleIssueQuery(cm)} disabled={isGenerating} className={`px-6 py-2.5 ${isGenerating ? 'bg-slate-400' : 'bg-red-600'} text-white text-[10px] font-black uppercase rounded-xl shadow-xl active:scale-95 transition-all`}>
+                                 {isGenerating ? 'WORKING...' : 'ISSUE QUERY'}
+                               </button>
+                            </td>
+                         </tr>
                       ))}
-                  </tbody>
-               </table>
-               {entries.length === 0 && <p className="text-center py-20 text-slate-300 font-bold uppercase text-[10px]">No exceptions recorded.</p>}
-            </div>
-          </div>
+                    </tbody>
+                 </table>
+              </div>
+           </div>
         </div>
       )}
-    </>
-  );
-};
-
-/* --- CD&R Module (Minute Sheet Logic) --- */
-const CDRModule = ({ entries, lga, db, userRole }: any) => {
-  const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    await addData(db, "cdr_cases", { ...formData, lga: lga || 'Daura', status: 'Pending' as CDRStatus });
-    setFormData({ name: '', stateCode: '', ppa: '', misconduct: '', dateOfInfraction: '' });
-  };
-  
-  const handleFileUpload = async (id: string, files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const base64 = await fileToBase64(files[0]);
-    await updateData(db, "cdr_cases", id, { responseImage: base64, status: 'Responded' as CDRStatus });
-    window.alert("Document Linked Successfully.");
-  };
-
-  const handleStatusUpdate = async (id: string, status: CDRStatus) => { await updateData(db, "cdr_cases", id, { status }); };
-  const handleMinuteUpdate = async (id: string, field: string, text: string) => { await updateData(db, "cdr_cases", id, { [field]: text }); };
-
-  return (
-    <>
-      <div className="w-full lg:w-[280px] shrink-0 no-print">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[8px] text-slate-400 tracking-widest mb-3">Initialize Case docket</h3>
-          <form onSubmit={handleSubmit} className="space-y-2">
-            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none font-bold" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none font-bold" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <input required placeholder="PPA / STATION" className="w-full p-2 bg-slate-50 border rounded text-[10px] uppercase outline-none font-bold" value={formData.ppa} onChange={e => setFormData({...formData, ppa: e.target.value.toUpperCase()})} />
-            <textarea required placeholder="MISCONDUCT NARRATIVE..." className="w-full p-2 bg-slate-50 border rounded h-24 text-[10px] outline-none font-medium" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: e.target.value})} />
-            <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] shadow-sm flex items-center justify-center gap-1 hover:bg-black transition-all"><PlusIcon /> Publish record</button>
-          </form>
-        </div>
-      </div>
-      <div className="flex-1 space-y-4">
-        <div className="flex justify-between items-center mb-1 px-1">
-          <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Active Disciplinary docket</p>
-          <button onClick={() => downloadCSV(entries, "CDR_Master_Registry")} className="text-[8px] font-black uppercase text-emerald-700 hover:underline flex items-center gap-1"><SpreadsheetIcon /> Export Master Registry</button>
-        </div>
-        {entries.map((cm: CDRCase) => (
-          <div key={cm.id} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm relative animate-official group">
-             <div className="absolute top-4 right-4 flex items-center gap-2 no-print">
-                <span className={`px-2 py-0.5 rounded text-[7px] font-bold uppercase border tracking-widest ${
-                  cm.status === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 
-                  cm.status === 'Responded' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                  cm.status === 'Minuted_back_to_LGI' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
-                  'bg-slate-900 text-white'
-                }`}>{cm.status?.replace(/_/g, ' ') || 'Pending'}</span>
-                {userRole === 'ZI' && <button onClick={() => { if(window.confirm('Delete this case?')) deleteData(db, "cdr_cases", cm.id); }} className="text-slate-200 hover:text-red-500 scale-75 transition-colors"><TrashIcon /></button>}
-             </div>
-             <div className="mb-3">
-               <h4 className="text-[15px] font-black uppercase tracking-tight text-slate-800 leading-none">{cm.name}</h4>
-               <p className="text-[9px] font-bold text-emerald-800 opacity-60 mt-1 uppercase tracking-wider">{cm.stateCode} • {cm.lga} Command</p>
-             </div>
-             
-             <div className="p-3 bg-slate-50 rounded border border-slate-100 mb-3 relative overflow-hidden shadow-inner">
-                <p className="text-slate-600 text-[11px] font-medium italic leading-relaxed">"{cm.misconduct}"</p>
-                {cm.ppa && <p className="mt-2 text-[7px] font-black text-slate-400 uppercase tracking-widest">Administrative Station: {cm.ppa}</p>}
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-50 pt-3 mb-3">
-                <div className="space-y-2">
-                   <div className="flex justify-between items-center">
-                      <p className="text-[8px] font-black text-blue-800 uppercase tracking-widest">LGI Administrative Minute</p>
-                      {cm.responseImage && <button onClick={() => setPreviewImage(cm.responseImage!)} className="text-[7px] font-bold text-blue-600 underline">View Document</button>}
-                   </div>
-                   <textarea 
-                     readOnly={userRole !== 'LGI'}
-                     className={`w-full p-2.5 rounded border text-[10px] h-24 outline-none italic leading-normal ${userRole === 'LGI' ? 'bg-blue-50/20 border-blue-100 focus:bg-white shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-                     placeholder="Enter station minute..."
-                     defaultValue={cm.lgiMinute}
-                     onBlur={(e) => userRole === 'LGI' && handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)}
-                   />
-                   {userRole === 'LGI' && (
-                     <div className="flex gap-2">
-                        <input type="file" className="text-[8px] w-full" onChange={(e) => handleFileUpload(cm.id, e.target.files)} />
-                        <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="px-4 py-1.5 bg-blue-600 text-white rounded text-[8px] font-bold uppercase shadow-sm hover:bg-blue-700 transition-all">Forward to ZI</button>
-                     </div>
-                   )}
-                </div>
-                <div className="space-y-2">
-                   <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest">ZI Headquarters Directive</p>
-                   <textarea 
-                     readOnly={userRole !== 'ZI'}
-                     className={`w-full p-2.5 rounded border text-[10px] h-24 outline-none italic leading-normal ${userRole === 'ZI' ? 'bg-emerald-50/20 border-emerald-100 focus:bg-white shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
-                     placeholder="Enter official ZI instruction..."
-                     defaultValue={cm.ziMinute}
-                     onBlur={(e) => userRole === 'ZI' && handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)}
-                   />
-                   {userRole === 'ZI' && (
-                     <div className="flex flex-col gap-1">
-                        <div className="grid grid-cols-2 gap-1">
-                           <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_back_to_LGI')} className="py-1.5 bg-yellow-600 text-white rounded text-[8px] font-bold uppercase hover:bg-yellow-700 shadow-sm transition-all">Return LGI</button>
-                           <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_CDR')} className="py-1.5 bg-slate-900 text-white rounded text-[8px] font-bold uppercase hover:bg-black shadow-sm transition-all">Finalize Case</button>
-                        </div>
-                        <button onClick={() => handleStatusUpdate(cm.id, 'Minuted_to_CIM')} className="w-full py-2 bg-emerald-700 text-white rounded text-[8px] font-black uppercase tracking-widest shadow-sm hover:bg-emerald-800 transition-all">Refer to CIM Desk</button>
-                     </div>
-                   )}
-                </div>
-             </div>
-
-             <div className="flex justify-between items-center border-t border-slate-50 pt-3 no-print">
-               <p className="text-[7px] font-black text-slate-300 uppercase tracking-widest">Docket Ref: {cm.id.substring(0,8).toUpperCase()}</p>
-               <div className="flex gap-2">
-                 <button onClick={() => shareData(`CDR Case: ${cm.name}`, `Infraction: ${cm.misconduct}`)} title="Share Record" className="w-8 h-8 flex items-center justify-center text-blue-600 bg-white border rounded scale-75 shadow-sm hover:shadow-md transition-all"><ShareIcon /></button>
-                 <button onClick={() => generateOfficialPDF(cm, 'CDR_CASE')} title="Download PDF" className="w-8 h-8 flex items-center justify-center text-slate-400 bg-white border rounded scale-75 shadow-sm hover:shadow-md transition-all"><DownloadIcon /></button>
-                 <button title="WhatsApp Alert" className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-white border rounded scale-75 shadow-sm hover:shadow-md transition-all" onClick={() => (window as any).open(`https://wa.me/?text=${encodeURIComponent(`Administrative Record Updated for ${cm.name} (${cm.stateCode}). Please check the portal for latest directives.`)}`)}><WhatsAppIcon /></button>
-               </div>
-             </div>
-          </div>
-        ))}
-        {entries.length === 0 && <div className="text-center py-20 bg-white rounded-lg border border-dashed border-slate-200"><p className="text-slate-300 uppercase font-black tracking-widest text-[10px]">No cases currently indexed.</p></div>}
-      </div>
-
-      {previewImage && (
-        <div className="fixed inset-0 bg-slate-950/95 z-[3000] flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-          <div className="max-w-4xl w-full max-h-[90vh] flex flex-col items-center gap-4 animate-official">
-             <img src={previewImage} className="max-w-full max-h-full rounded-lg shadow-2xl border-4 border-white/5 object-contain" alt="Asset Preview" />
-             <button className="px-6 py-2 bg-white text-black font-black uppercase text-[10px] rounded shadow-lg hover:bg-slate-200 transition-colors">Close Evidence Preview</button>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-/* --- SAED Module --- */
-const SAEDModule = ({ entries, db, lga, userRole }: any) => {
-  const [formData, setFormData] = useState({ centerName: '', address: '', cmCount: 0, fee: 0 });
-  return (
-    <>
-      <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <h3 className="font-bold uppercase text-[8px] text-slate-400 tracking-widest mb-3">Skill Center census</h3>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',address:'',cmCount:0,fee:0}); window.alert("Hub Added."); }} className="space-y-2">
-            <input required placeholder="HUB NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none font-bold uppercase" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATION / ADDRESS" className="w-full p-2 bg-slate-50 rounded border text-[10px] outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value.toUpperCase()})} />
-            <div className="grid grid-cols-2 gap-2">
-               <input type="number" placeholder="ENROLLED" className="w-full p-2 bg-white rounded border text-[10px] font-black text-blue-600" value={formData.cmCount || ''} onChange={e => setFormData({...formData, cmCount: parseInt(e.target.value) || 0})} />
-               <input type="number" placeholder="₦ FEE" className="w-full p-2 bg-white rounded border text-[10px] font-black text-emerald-600" value={formData.fee || ''} onChange={e => setFormData({...formData, fee: parseInt(e.target.value) || 0})} />
-            </div>
-            <button className="w-full bg-[#004d40] text-white p-2.5 rounded font-black uppercase text-[8px] tracking-widest shadow-sm flex items-center justify-center gap-1 hover:bg-black transition-all"><PlusIcon /> Confirm Hub</button>
-          </form>
-        </div>
-      </div>
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 content-start">
-        {entries.map((c: any) => (
-          <div key={c.id} className="bg-white p-4 rounded border border-slate-100 relative group animate-official hover:shadow-lg overflow-hidden h-fit transition-all">
-            <div className="absolute top-0 left-0 w-1 h-full bg-[#004d40]"></div>
-            <div className="flex justify-between items-start mb-1">
-               <h4 className="text-[12px] font-black uppercase text-slate-800 leading-tight">{c.centerName}</h4>
-               <span className="text-[7px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase">{c.lga}</span>
-            </div>
-            <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 leading-none">{c.address}</p>
-            <div className="flex gap-6 pt-3 border-t border-slate-50 mt-3">
-               <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase tracking-widest">CENSUS</p><p className="text-[16px] font-black text-[#004d40]">{c.cmCount}</p></div>
-               <div><p className="text-[7px] font-bold text-slate-300 mb-0.5 uppercase tracking-widest">REVENUE</p><p className="text-[16px] font-black text-emerald-600">₦{Number(c.fee).toLocaleString()}</p></div>
-            </div>
-            <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
-              <button onClick={() => shareData(`SAED Hub: ${c.centerName}`, `Census: ${c.cmCount} | Fee: ₦${c.fee}`)} className="text-blue-500 scale-75 hover:scale-90 transition-transform"><ShareIcon /></button>
-              {userRole === 'ZI' && <button onClick={() => deleteData(db, "saed_centers", c.id)} className="text-red-500 scale-75 hover:scale-90 transition-transform"><TrashIcon /></button>}
-            </div>
-          </div>
-        ))}
-        {entries.length === 0 && <div className="col-span-full py-16 text-center text-slate-300 uppercase font-black text-[9px]">No SAED Skill centers logged.</div>}
-      </div>
-    </>
+    </div>
   );
 };
 
 /* --- CWHS Module --- */
 const CWHSModule = ({ entries, db, lga, userRole }: any) => {
-  const [formData, setFormData] = useState({ name: '', stateCode: '', category: ReportCategory.ABSCONDED, details: '' });
+  const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', gsmNo: '', category: ReportCategory.ABSCONDED, details: '' });
   return (
-    <>
-      <div className="w-full lg:w-[280px] shrink-0 no-print">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 lg:sticky lg:top-14">
-          <h3 className="font-bold uppercase text-[8px] text-slate-400 tracking-widest mb-3">Station incident reporting</h3>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',category:ReportCategory.ABSCONDED,details:''}); window.alert("Filed Incident."); }} className="space-y-2">
-            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-black uppercase" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-black uppercase" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <select className="w-full p-2 bg-slate-50 rounded border text-[10px] font-black uppercase" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ReportCategory})}>
-              {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c}</option>)}
+    <div className="flex flex-col lg:flex-row gap-10 animate-official">
+      <div className="w-full lg:w-[350px] shrink-0 no-print">
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">STATION INCIDENT LOG</h3>
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',category:ReportCategory.ABSCONDED,details:''}); window.alert("Incident filed."); }} className="space-y-4">
+            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
+            <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ReportCategory})}>
+              {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}
             </select>
-            <textarea placeholder="NARRATIVE BRIEF..." className="w-full p-2 bg-slate-50 rounded border h-24 text-[10px] outline-none font-medium" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
-            <button className="w-full bg-[#004d40] text-white p-2.5 rounded font-black uppercase text-[8px] shadow-sm flex items-center justify-center gap-1 hover:bg-black transition-all"><PlusIcon /> Publish record</button>
+            <textarea placeholder="INCIDENT BRIEF / NARRATIVE..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+            <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest"><PlusIcon /> PUBLISH RECORD</button>
           </form>
         </div>
       </div>
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 content-start">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 content-start">
         {entries.map((e: any) => (
-          <div key={e.id} className="bg-white p-4 rounded border border-slate-200 relative group animate-official shadow-sm overflow-hidden h-fit transition-all hover:shadow-md">
-            <div className="flex justify-between items-start mb-1">
-               <h4 className="text-[13px] font-black uppercase text-slate-800 leading-none">{e.name}</h4>
-               <span className="text-[7px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase">{e.lga}</span>
+          <div key={e.id} className="bg-white p-8 rounded-xl border border-slate-200 relative group animate-official shadow-sm hover:shadow-md transition-all h-fit">
+            <div className="flex justify-between items-start mb-4">
+               <div>
+                  <h4 className="text-[18px] font-black uppercase text-slate-800 leading-none mb-1.5">{e.name}</h4>
+                  <p className="text-[11px] font-black text-[#004d40] opacity-60 uppercase tracking-[0.2em]">{e.stateCode}</p>
+               </div>
+               <span className="text-[9px] font-black text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 uppercase tracking-widest">{e.lga}</span>
             </div>
-            <p className="text-[9px] font-bold text-emerald-800 opacity-60 mt-1 uppercase tracking-widest">{e.stateCode}</p>
-            <div className="p-3 bg-slate-50 rounded border border-slate-100 my-3 shadow-inner"><p className="text-[10px] text-slate-600 italic leading-relaxed">"{e.details || 'Official documentation pending.'}"</p></div>
-            <div className="flex justify-between items-center border-t border-slate-50 pt-3">
-               <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 bg-slate-900 text-white rounded-full">{e.category}</span>
-               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity no-print">
-                 <button onClick={() => shareData(`Incident Brief: ${e.name}`, e.details)} className="text-blue-500 scale-75 hover:scale-90 transition-all"><ShareIcon /></button>
-                 {userRole === 'ZI' && <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="text-red-500 scale-75 hover:scale-90 transition-all"><TrashIcon /></button>}
+            <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 mb-6 italic text-[13px] text-slate-600 leading-relaxed shadow-inner">"{e.details || 'Official documentation pending.'}"</div>
+            <div className="flex justify-between items-center border-t border-slate-50 pt-6">
+               <span className="text-[10px] font-black uppercase tracking-[0.2em] px-4 py-2 bg-[#0f172a] text-white rounded-lg shadow-sm">{e.category}</span>
+               <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                 <button onClick={() => shareData(`Incident Brief: ${e.name}`, e.details)} className="w-10 h-10 flex items-center justify-center text-blue-500 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all active:scale-90"><ShareIcon /></button>
+                 {userRole === 'ZI' && <button onClick={() => deleteData(db, "nysc_reports", e.id)} className="w-10 h-10 flex items-center justify-center text-red-400 bg-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all active:scale-90"><TrashIcon /></button>}
                </div>
             </div>
           </div>
         ))}
-        {entries.length === 0 && <div className="col-span-full py-16 text-center text-slate-300 uppercase font-black text-[9px]">No station incidents reported.</div>}
       </div>
-    </>
+    </div>
   );
 };
 
-/* --- CDS Module --- */
-const CDSModule = ({ groups, projects, lga, db, userRole }: any) => {
-  const [view, setView] = useState<'UNITS' | 'PROJECTS'>('UNITS');
-  const [groupForm, setGroupForm] = useState({ groupName: '', meetingDay: 'Wednesday' });
-  const [projectForm, setProjectForm] = useState({ cmName: '', stateCode: '', projectName: '', description: '', status: 'Ongoing' as const });
+/* --- CD&R Module --- */
+const CDRModule = ({ entries, lga, db, userRole }: any) => {
+  const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', gsmNo: '', misconduct: '' });
+
+  const handleMinuteUpdate = async (id: string, field: string, text: string) => { await updateData(db, "cdr_cases", id, { [field]: text }); };
+  const handleStatusUpdate = async (id: string, status: CDRStatus) => { await updateData(db, "cdr_cases", id, { status }); };
+
+  const handleResponseUpload = async (id: string, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const base64 = await fileToBase64(files[0]);
+    await updateData(db, "cdr_cases", id, { responseImage: base64, status: 'Responded' as CDRStatus });
+    window.alert("Query response linked.");
+  };
 
   return (
-    <>
-      <div className="w-full lg:w-[280px] flex flex-col gap-4 no-print shrink-0">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex bg-slate-50 p-1 rounded-md mb-4 border border-slate-100 shadow-inner">
-             <button onClick={() => setView('UNITS')} className={`flex-1 py-1.5 rounded text-[8px] font-black uppercase transition-all ${view === 'UNITS' ? 'bg-[#004d40] text-white shadow-sm' : 'text-slate-400'}`}>Station Units</button>
-             <button onClick={() => setView('PROJECTS')} className={`flex-1 py-1.5 rounded text-[8px] font-black uppercase transition-all ${view === 'PROJECTS' ? 'bg-[#004d40] text-white shadow-sm' : 'text-slate-400'}`}>Impact projects</button>
-          </div>
+    <div className="flex flex-col lg:flex-row gap-8 animate-official">
+      <div className="w-full lg:w-[350px] shrink-0 no-print">
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">INITIALIZE CASE DOCKET</h3>
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cdr_cases", { ...formData, lga, status: 'Pending' }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',misconduct:''}); window.alert("Case docket opened."); }} className="space-y-4">
+            <input required placeholder="PERSONNEL FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
+            <input required placeholder="STATION / PPA" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.ppa} onChange={e => setFormData({...formData, ppa: e.target.value.toUpperCase()})} />
+            <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: e.target.value})} />
+            <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest shadow-lg"><PlusIcon /> OPEN CASE DOCKET</button>
+          </form>
+        </div>
+      </div>
+      <div className="flex-1 space-y-8">
+        {entries.map((cm: CDRCase) => (
+          <div key={cm.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group animate-official relative hover:shadow-md transition-all">
+             <div className="absolute top-10 right-10 flex items-center gap-4 no-print">
+                <span className={`px-5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border ${
+                  cm.status === 'Minuted_to_CIM' ? 'bg-[#004d40] text-white border-transparent shadow-sm' :
+                  cm.status === 'Forwarded_to_ZI' ? 'bg-[#0f172a] text-white border-transparent shadow-sm' :
+                  'bg-slate-50 text-slate-500 border-slate-200'
+                }`}>{cm.status?.replace(/_/g, ' ') || 'PENDING'}</span>
+             </div>
+             <div className="p-10 pb-4">
+                <h4 className="text-2xl font-black uppercase tracking-tight text-slate-800 leading-none mb-2">{cm.name}</h4>
+                <p className="text-[12px] font-black text-[#004d40] uppercase tracking-[0.3em] opacity-50">{cm.stateCode} • {cm.lga?.toUpperCase()} UNIT</p>
+             </div>
+             
+             <div className="mx-10 p-6 bg-[#f8fafc] rounded-xl border border-slate-100 italic text-[14px] text-slate-600 font-medium leading-relaxed shadow-inner">"{cm.misconduct}"</div>
 
+             <div className="p-10 grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-4">
+                   <p className="text-[10px] font-black text-[#004d40] uppercase tracking-[0.3em] px-1">LGI ADMINISTRATIVE MINUTE</p>
+                   <textarea readOnly={userRole !== 'LGI'} className="w-full p-5 bg-[#fdfdfd] border-slate-200 border rounded-xl text-[13px] h-40 outline-none font-medium italic shadow-inner" placeholder="Enter commander minute..." defaultValue={cm.lgiMinute} onBlur={(e) => userRole === 'LGI' && handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)} />
+                   {userRole === 'LGI' && (
+                     <div className="flex flex-col gap-4">
+                        <label className="cursor-pointer bg-slate-50 hover:bg-slate-100 p-4 rounded-xl border border-dashed border-slate-300 text-center transition-all">
+                           <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">Attach Response</span>
+                           <input type="file" className="hidden" onChange={(e) => handleResponseUpload(cm.id, e.target.files)} />
+                        </label>
+                        <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="w-full py-4 bg-[#0f172a] text-white rounded-xl text-[11px] font-black uppercase tracking-[0.3em] active:scale-95 transition-all">FORWARD TO ZONAL HQ</button>
+                     </div>
+                   )}
+                </div>
+                <div className="space-y-4">
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-1">ZI HEADQUARTERS DIRECTIVE</p>
+                   <textarea readOnly={userRole !== 'ZI'} className="w-full p-5 bg-[#fdfdfd] border-slate-200 border rounded-xl text-[13px] h-40 outline-none font-medium italic shadow-inner" placeholder="Enter Zonal Inspector directive..." defaultValue={cm.ziMinute} onBlur={(e) => userRole === 'ZI' && handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)} />
+                </div>
+             </div>
+             <div className="p-8 pt-0 flex justify-between items-center border-t border-slate-50 pt-8 no-print">
+               <p className="text-[11px] font-black text-slate-200 uppercase tracking-[0.4em]">REFERENCE ID: {cm.id.substring(0,10).toUpperCase()}</p>
+               <div className="flex gap-4">
+                 <button onClick={() => shareData(`Case Audit: ${cm.name}`, cm.stateCode)} className="w-12 h-12 flex items-center justify-center text-blue-500 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all active:scale-90 shadow-sm"><ShareIcon /></button>
+                 <button onClick={() => generateOfficialPDF(cm, 'CDR_CASE')} className="w-12 h-12 flex items-center justify-center text-slate-400 bg-slate-50 rounded-xl hover:bg-slate-100 transition-all active:scale-90 shadow-sm"><DownloadIcon /></button>
+               </div>
+             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* --- CDS & SAED Modules --- */
+const CDSModule = ({ groups, projects, lga, db, userRole }: any) => {
+  const [view, setView] = useState<'UNITS' | 'PROJECTS'>('UNITS');
+  const [groupForm, setGroupForm] = useState({ groupName: '' });
+  const [projectForm, setProjectForm] = useState({ cmName: '', stateCode: '', projectName: '', description: '' });
+  return (
+    <div className="flex flex-col lg:flex-row gap-10 animate-official">
+      <div className="w-full lg:w-[350px] shrink-0 no-print">
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex bg-slate-50 p-1.5 rounded-xl mb-8 border border-slate-100">
+             <button onClick={() => setView('UNITS')} className={`flex-1 py-3.5 rounded-lg text-[11px] font-black uppercase transition-all tracking-wider ${view === 'UNITS' ? 'bg-[#004d40] text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>UNITS</button>
+             <button onClick={() => setView('PROJECTS')} className={`flex-1 py-3.5 rounded-lg text-[11px] font-black uppercase transition-all tracking-wider ${view === 'PROJECTS' ? 'bg-[#004d40] text-white shadow-xl' : 'text-slate-400'}`}>PROJECTS</button>
+          </div>
           {view === 'UNITS' ? (
-            <div className="animate-official">
-              <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest mb-3">Register Unit</h3>
-              <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:'',meetingDay:'Wednesday'}); window.alert("CDS Group Initialized."); }} className="space-y-2">
-                <input required placeholder="UNIT NAME" className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({...groupForm, groupName: e.target.value.toUpperCase()})} />
-                <select className="w-full p-2 bg-slate-50 rounded border border-slate-200 text-[10px] font-bold uppercase outline-none" value={groupForm.meetingDay} onChange={e => setGroupForm({...groupForm, meetingDay: e.target.value})}>
-                  <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option>
-                </select>
-                <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm hover:bg-black transition-all"><PlusIcon /> Confirm unit</button>
-              </form>
-            </div>
+            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:''}); window.alert("Unit registered."); }} className="space-y-4">
+               <input required placeholder="UNIT NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={groupForm.groupName} onChange={e => setGroupForm({groupName: e.target.value.toUpperCase()})} />
+               <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all">REGISTER UNIT</button>
+            </form>
           ) : (
-            <div className="animate-official">
-              <h3 className="font-bold uppercase text-[7px] text-slate-400 tracking-widest mb-3">Register individual project</h3>
-              <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:'',status:'Ongoing'}); window.alert("Impact Project Logged."); }} className="space-y-2">
-                <input required placeholder="CM FULL NAME" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
-                <input required placeholder="STATE CODE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.stateCode} onChange={e => setProjectForm({...projectForm, stateCode: e.target.value.toUpperCase()})} />
-                <input required placeholder="PROJECT TITLE" className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
-                <textarea required placeholder="PROJECT DESCRIPTION..." className="w-full p-2 bg-slate-50 rounded border h-20 text-[10px] outline-none font-medium" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: e.target.value})} />
-                <select className="w-full p-2 bg-slate-50 rounded border text-[10px] font-bold uppercase outline-none" value={projectForm.status} onChange={e => setProjectForm({...projectForm, status: e.target.value as any})}>
-                  <option value="Ongoing">Status: Ongoing</option>
-                  <option value="Completed">Status: Completed</option>
-                </select>
-                <button className="w-full bg-[#004d40] text-white p-2 rounded font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm hover:bg-black transition-all"><PlusIcon /> Publish impact</button>
-              </form>
-            </div>
+            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:''}); window.alert("Project filed."); }} className="space-y-4">
+               <input required placeholder="CORPS MEMBER NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
+               <input required placeholder="PROJECT TITLE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
+               <textarea required placeholder="IMPACT SCOPE..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: e.target.value})} />
+               <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all">PUBLISH PROJECT</button>
+            </form>
           )}
         </div>
       </div>
-
-      <div className="flex-1">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {view === 'UNITS' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 content-start animate-official">
-            {groups.map((g: any) => (
-              <div key={g.id} className="bg-white p-3 rounded border border-slate-200 relative group shadow-sm overflow-hidden h-fit transition-all hover:shadow-md">
-                <div className="absolute left-0 top-0 w-1 h-full bg-[#004d40]"></div>
-                <div className="flex justify-between items-start mb-2">
-                   <h4 className="text-[12px] font-black uppercase text-slate-800 leading-tight">{g.groupName}</h4>
-                   <span className="text-[7px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase">{g.lga}</span>
-                </div>
-                <div className="flex items-center gap-2 text-[8px] font-bold text-emerald-800 tracking-wider uppercase mt-1">
-                  <span className="bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{g.meetingDay}</span>
-                  <span className="text-slate-300">STATION RECORD</span>
-                </div>
-                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
-                  <button onClick={() => shareData(`CDS Unit: ${g.groupName}`, `Meeting Day: ${g.meetingDay}`)} className="text-blue-500 scale-75 hover:scale-90 transition-all hover:shadow-md"><ShareIcon /></button>
-                  {userRole === 'ZI' && <button onClick={() => deleteData(db, "cds_groups", g.id)} className="text-red-500 scale-75 hover:scale-90 transition-all"><TrashIcon /></button>}
-                </div>
-              </div>
-            ))}
-            {groups.length === 0 && <p className="col-span-full text-center text-slate-400 py-10 uppercase font-black text-[9px]">No units currently registered.</p>}
-          </div>
+          groups.map((g: any) => (
+            <div key={g.id} className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm relative group h-fit overflow-hidden hover:shadow-md transition-all duration-300"><div className="absolute left-0 top-0 w-2 h-full bg-[#004d40]"></div><h4 className="text-[18px] font-black uppercase text-slate-800 leading-tight mb-2">{g.groupName}</h4><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">{g.lga} UNIT</p></div>
+          ))
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start animate-official">
-            {projects.map((p: CDSPersonalProject) => (
-              <div key={p.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm relative group overflow-hidden h-fit transition-all hover:shadow-md">
-                <div className={`absolute top-0 right-0 w-20 h-20 -mr-8 -mt-8 rotate-45 opacity-10 ${p.status === 'Completed' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
-                <div className="flex justify-between items-start mb-2">
-                   <div>
-                      <span className={`inline-block px-2 py-0.5 rounded-[4px] text-[7px] font-black uppercase tracking-widest border mb-2 shadow-sm ${
-                        p.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'
-                      }`}>{p.status}</span>
-                      <h4 className="text-[14px] font-black uppercase text-slate-800 leading-tight">{p.projectName}</h4>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Lead: {p.cmName} ({p.stateCode})</p>
-                   </div>
-                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
-                      <button onClick={() => shareData(`CDS Impact: ${p.projectName}`, `${p.cmName}: ${p.description}`)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-all hover:shadow-sm"><ShareIcon /></button>
-                      {userRole === 'ZI' && <button onClick={() => deleteData(db, "cds_projects", p.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-all"><TrashIcon /></button>}
-                   </div>
-                </div>
-                <div className="p-3 bg-slate-50 rounded border border-slate-100 text-[11px] text-slate-600 leading-relaxed italic mb-3 shadow-inner">
-                   "{p.description}"
-                </div>
-                <div className="flex justify-between items-center text-[7px] font-black uppercase tracking-widest text-slate-400">
-                   <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{p.lga} UNIT Station</span>
-                   <span>PUBLISHED: {new Date(p.dateAdded).toLocaleDateString()}</span>
-                </div>
-              </div>
-            ))}
-            {projects.length === 0 && <p className="col-span-full text-center text-slate-400 py-10 uppercase font-black text-[9px]">No projects recorded in impact log.</p>}
-          </div>
+          projects.map((p: any) => (
+            <div key={p.id} className="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm relative group h-fit overflow-hidden hover:shadow-md transition-all"><h4 className="text-[22px] font-black uppercase text-slate-800 leading-tight mb-3">{p.projectName}</h4><p className="text-[11px] font-black text-[#004d40] uppercase tracking-widest">{p.cmName} • {p.stateCode}</p><div className="bg-slate-50 p-6 rounded-xl border border-slate-100 italic text-[14px] text-slate-600 font-medium mt-6 leading-relaxed shadow-inner">"{p.description}"</div></div>
+          ))
         )}
       </div>
-    </>
+    </div>
+  );
+};
+
+const SAEDModule = ({ entries, db, lga, userRole }: any) => {
+  const [formData, setFormData] = useState({ centerName: '', cmCount: 0, fee: 0 });
+  return (
+    <div className="flex flex-col lg:flex-row gap-10 animate-official">
+      <div className="w-full lg:w-[350px] shrink-0 no-print">
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">SKILL CENTER CENSUS</h3>
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',cmCount:0,fee:0}); window.alert("Training hub linked."); }} className="space-y-4">
+            <input required placeholder="HUB NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
+            <div className="grid grid-cols-2 gap-4">
+               <input type="number" placeholder="ENROLLED" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black outline-none focus:border-emerald-300 transition-all" value={formData.cmCount || ''} onChange={e => setFormData({...formData, cmCount: parseInt(e.target.value) || 0})} />
+               <input type="number" placeholder="FEE (₦)" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black text-emerald-600 outline-none focus:border-emerald-300 transition-all" value={formData.fee || ''} onChange={e => setFormData({...formData, fee: parseInt(e.target.value) || 0})} />
+            </div>
+            <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all"><PlusIcon /> CONFIRM HUB REGISTRY</button>
+          </form>
+        </div>
+      </div>
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {entries.map((c: any) => (
+          <div key={c.id} className="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm relative group h-fit overflow-hidden hover:shadow-lg transition-all duration-500"><div className="absolute top-0 left-0 w-2 h-full bg-[#004d40]"></div><h4 className="text-[20px] font-black uppercase text-slate-800 leading-tight mb-8">{c.centerName}</h4><div className="flex gap-12 pt-8 border-t border-slate-100"><div className="text-center"><p className="text-[10px] font-black text-slate-300 mb-2 tracking-widest uppercase">ENROLLED</p><p className="text-4xl font-black text-[#004d40] leading-none transition-transform group-hover:scale-110">{c.cmCount}</p></div><div className="text-center"><p className="text-[10px] font-black text-slate-300 mb-2 tracking-widest uppercase">REVENUE</p><p className="text-4xl font-black text-emerald-600 leading-none transition-transform group-hover:scale-110">₦{Number(c.fee).toLocaleString()}</p></div></div></div>
+        ))}
+      </div>
+    </div>
   );
 };
 
