@@ -153,7 +153,9 @@ const App: React.FC = () => {
           searchPool = [
             String(item.company || ''), 
             String(item.gsmNo || ''), 
-            String(item.batch || '')
+            String(item.batch || ''),
+            String(item.lga || ''), // Included LGA in search pool
+            String(item.stream || '')
           ];
         } else {
           searchPool = [
@@ -163,7 +165,8 @@ const App: React.FC = () => {
             String(item.stateCode || ''),
             String(item.ppa || ''),
             String(item.company || ''),
-            String(item.misconduct || '')
+            String(item.misconduct || ''),
+            String(item.lga || '')
           ];
         }
         
@@ -274,7 +277,7 @@ const App: React.FC = () => {
             <SearchIcon />
             <input 
               type="text" 
-              placeholder="Quick search by Name or State Code..." 
+              placeholder="Search by Name, State Code, LGA, or Batch..." 
               className="bg-transparent ml-4 w-full outline-none text-[15px] font-medium text-slate-600 placeholder:text-slate-400"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -329,16 +332,16 @@ const App: React.FC = () => {
 const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching }: any) => {
   const [isUploading, setIsUploading] = useState(false);
   
-  // Secondary local filtering state
-  const [lgaFilter, setLgaFilter] = useState<DauraLga | ''>('');
+  // Refined filtering states
+  const [lgaFilter, setLgaFilter] = useState<DauraLga | ''>(userRole === 'LGI' ? lgaContext : '');
   const [batchFilter, setBatchFilter] = useState<string>('');
 
-  // Upload state
+  // Upload state for ZI
   const [selectedUploadLga, setSelectedUploadLga] = useState<DauraLga | ''>('');
   const [selectedUploadBatch, setSelectedUploadBatch] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Apply secondary categorical filters
+  // Apply secondary multi-criteria filters
   const displayedEntries = useMemo(() => {
     return entries.filter((p: PersonnelEntry) => {
       const matchLga = !lgaFilter || String(p.lga).toLowerCase() === String(lgaFilter).toLowerCase();
@@ -391,9 +394,8 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
 
   return (
     <div className="w-full flex flex-col gap-6 animate-official min-h-[500px]">
-      {/* Module Header & Filters */}
       <div className="flex flex-col gap-6 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div className="shrink-0">
             <h2 className="text-[18px] font-black uppercase text-slate-800 tracking-tight">Personnel Search Terminal</h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
@@ -401,15 +403,15 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
              <button onClick={() => downloadCSV(displayedEntries, `${userRole}_Filtered_Registry`)} className="px-4 py-2.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase border border-blue-100 flex items-center gap-2 hover:bg-blue-100 transition-all">
-               <DownloadIcon /> Export Result
+               <DownloadIcon /> Export CSV
              </button>
 
              {userRole === 'ZI' && (
-               <div className="flex flex-col md:flex-row items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
+               <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
                  <select 
-                   className="w-full md:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
+                   className="w-full sm:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
                    value={selectedUploadLga}
                    onChange={e => setSelectedUploadLga(e.target.value as DauraLga)}
                  >
@@ -417,7 +419,7 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
                    {LGAS.map(l => <option key={l} value={l}>{l}</option>)}
                  </select>
                  <select 
-                   className="w-full md:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
+                   className="w-full sm:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
                    value={selectedUploadBatch}
                    onChange={e => setSelectedUploadBatch(e.target.value)}
                  >
@@ -437,41 +439,53 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
           </div>
         </div>
 
-        {/* Dynamic Filtering Row */}
+        {/* Dynamic Refined Filters */}
         <div className="flex flex-wrap items-center gap-4 pt-6 border-t border-slate-50">
-           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter by:</span>
+           <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2">
+             <SearchIcon /> <span>Refine Search:</span>
+           </div>
            
-           {userRole === 'ZI' && (
+           <div className="flex items-center gap-2">
+             <label className="text-[9px] font-black text-slate-300 uppercase">LGA</label>
              <select 
-               className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors"
+               className={`p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors min-w-[120px] ${userRole === 'LGI' ? 'opacity-60 cursor-not-allowed' : ''}`}
                value={lgaFilter}
                onChange={e => setLgaFilter(e.target.value as DauraLga)}
+               disabled={userRole === 'LGI'}
              >
-               <option value="">All Stations (LGA)</option>
+               <option value="">All LGAs</option>
                {LGAS.map(l => <option key={l} value={l}>{l}</option>)}
              </select>
-           )}
+           </div>
 
-           <select 
-             className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors"
-             value={batchFilter}
-             onChange={e => setBatchFilter(e.target.value)}
-           >
-             <option value="">All Batches</option>
-             {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
-           </select>
-
-           {(lgaFilter || batchFilter) && (
-             <button 
-               onClick={() => {setLgaFilter(''); setBatchFilter('');}} 
-               className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline"
+           <div className="flex items-center gap-2">
+             <label className="text-[9px] font-black text-slate-300 uppercase">Batch</label>
+             <select 
+               className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors min-w-[120px]"
+               value={batchFilter}
+               onChange={e => setBatchFilter(e.target.value)}
              >
-               Clear Filters
+               <option value="">All Batches</option>
+               {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+             </select>
+           </div>
+
+           {(batchFilter || (userRole === 'ZI' && lgaFilter)) && (
+             <button 
+               onClick={() => {
+                 if (userRole === 'ZI') setLgaFilter('');
+                 setBatchFilter('');
+               }} 
+               className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline px-2"
+             >
+               Clear filters
              </button>
            )}
 
-           <div className="ml-auto text-[10px] font-black text-slate-300 uppercase tracking-widest">
-             Found: {displayedEntries.length} Personnel
+           <div className="ml-auto flex items-center gap-3">
+             <div className="px-3 py-1.5 bg-emerald-50 text-[#004d40] rounded-full text-[10px] font-black border border-emerald-100">
+               {displayedEntries.length} Records Found
+             </div>
            </div>
         </div>
       </div>
@@ -480,14 +494,14 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
         <div className="flex-1 flex flex-col items-center justify-center py-40 bg-white rounded-2xl border-2 border-dashed border-slate-200">
            <SearchIcon />
            <p className="text-slate-400 text-[12px] font-medium mt-4 uppercase tracking-[0.2em]">
-             Retrieve full profile by entering Name/Code or applying Station Filters
+             Enter Name/Code or select filters to retrieve personnel records
            </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {displayedEntries.map((p: PersonnelEntry) => (
             <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 hover:shadow-lg transition-all group animate-official relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="absolute top-0 left-0 w-full h-1 bg-[#004d40] opacity-0 group-hover:opacity-100 transition-opacity"></div>
               <div className="mb-6 flex justify-between items-start">
                 <span className="bg-emerald-50 text-[#004d40] text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">
                   {p.batch || 'N/A'} • {p.stream || 'N/A'}
@@ -536,8 +550,9 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
             </div>
           ))}
           {displayedEntries.length === 0 && (
-            <div className="col-span-full py-20 text-center bg-white rounded-xl border border-slate-100">
-              <p className="text-slate-300 uppercase font-black text-[11px] tracking-widest">No personnel found matching current criteria.</p>
+            <div className="col-span-full py-24 text-center bg-white rounded-xl border border-slate-100 shadow-inner">
+              <p className="text-slate-300 uppercase font-black text-[11px] tracking-widest mb-2">No matching personnel records found</p>
+              <p className="text-slate-400 text-[10px]">Try adjusting your search query or filters.</p>
             </div>
           )}
         </div>
