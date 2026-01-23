@@ -128,25 +128,26 @@ const App: React.FC = () => {
     const q = searchQuery.toLowerCase().trim();
     const filterFn = (items: any[], category: string) => {
       let filtered = items;
-      if (userRole === 'LGI') {
-        filtered = filtered.filter(i => String(i.lga).toLowerCase() === String(lgaContext).toLowerCase());
+      
+      // Mandatory LGA Filter for LGI (Zonal Inspector sees everything)
+      if (userRole === 'LGI' && lgaContext) {
+        filtered = filtered.filter(i => 
+          String(i.lga).trim().toLowerCase() === String(lgaContext).trim().toLowerCase()
+        );
       }
+
       return filtered.filter(item => {
         if (!q) return true;
-        // Search Pool refinement based on role and module
-        let searchPool: (string | undefined)[] = [];
-        if (category === 'personnel' && userRole === 'LGI') {
-          // LGI can only search by name or state code within their LGA context
-          searchPool = [item.surname, item.othernames, item.stateCode];
-        } else {
-          searchPool = [
-            item.surname, item.othernames, item.name, item.stateCode, item.lga, item.company, item.ppa,
-            item.gsmNo, item.stream, item.batch, item.misconduct
-          ];
-        }
+        // Expanded search pool for both roles within their allowed context
+        const searchPool: (string | undefined)[] = [
+          item.surname, item.othernames, item.name, item.stateCode, item.lga, item.company, item.ppa,
+          item.gsmNo, item.stream, item.batch, item.misconduct
+        ];
+        
         return searchPool.filter(Boolean).map(s => String(s).toLowerCase()).some(s => s.includes(q));
       });
     };
+
     return {
       personnel: filterFn(personnelRegistry, 'personnel'),
       cwhs: filterFn(cwhsEntries, 'cwhs'),
@@ -676,14 +677,40 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
 const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
   const [formData, setFormData] = useState({ name: '', stateCode: '', ppa: '', gsmNo: '', misconduct: '' });
   const [previewDoc, setPreviewDoc] = useState<string | null>(null);
+  const [caseToClose, setCaseToClose] = useState<{id: string, currentMinute: string} | null>(null);
+
+  const closureReasons = [
+    "Satisfactory Explanation Received",
+    "Disciplinary Penalty Served",
+    "Record Regularly Corrected",
+    "Mistaken Identity Resolved",
+    "Case Dismissed by Management",
+    "Member Completed Service Term"
+  ];
 
   const handleMinuteUpdate = async (id: string, field: string, text: string) => { 
     await updateData(db, "cdr_cases", id, { [field]: text }); 
   };
   
   const handleStatusUpdate = async (id: string, status: CDRStatus) => { 
+    if (status === 'Closed') {
+      const cm = entries.find((e: any) => e.id === id);
+      setCaseToClose({ id, currentMinute: cm?.ziMinute || '' });
+      return;
+    }
     await updateData(db, "cdr_cases", id, { status }); 
     window.alert(`Case status updated to ${status.replace(/_/g, ' ')}`);
+  };
+
+  const finalizeClosure = async (reason: string) => {
+    if (!caseToClose) return;
+    const finalMinute = `${caseToClose.currentMinute}\n\n[CASE CLOSED]: ${reason} (Ref: ${new Date().toLocaleDateString()})`;
+    await updateData(db, "cdr_cases", caseToClose.id, { 
+      status: 'Closed' as CDRStatus, 
+      ziMinute: finalMinute 
+    });
+    setCaseToClose(null);
+    window.alert("Case Docket Finalized and Closed.");
   };
 
   const handleResponseUpload = async (id: string, files: FileList | null) => {
@@ -804,6 +831,35 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
           </div>
         ))}
       </div>
+
+      {/* Closure Reason Selection Modal */}
+      {caseToClose && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[5000] flex items-center justify-center p-4 animate-official">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-10 space-y-8">
+            <div className="text-center">
+              <h3 className="text-lg font-black uppercase text-slate-800 mb-2">FINAL CASE CLOSURE</h3>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Select official reason for finalizing this docket</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              {closureReasons.map((reason) => (
+                <button 
+                  key={reason} 
+                  onClick={() => finalizeClosure(reason)}
+                  className="p-4 bg-slate-50 hover:bg-[#004d40] hover:text-white border border-slate-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all text-left shadow-sm active:scale-95"
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={() => setCaseToClose(null)} 
+              className="w-full py-4 bg-slate-100 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 hover:text-red-500 transition-all"
+            >
+              Cancel Closure
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Document Viewer Modal */}
       {previewDoc && (
