@@ -130,7 +130,6 @@ const App: React.FC = () => {
     const filterFn = (items: any[], category: string) => {
       let result = [...items];
       
-      // Strict Context Isolation: LGI only retrieves data belonging to their assigned LGA
       if (userRole === 'LGI' && lgaContext) {
         result = result.filter(item => 
           String(item.lga || '').trim().toLowerCase() === String(lgaContext).trim().toLowerCase()
@@ -154,7 +153,7 @@ const App: React.FC = () => {
             String(item.company || ''), 
             String(item.gsmNo || ''), 
             String(item.batch || ''),
-            String(item.lga || ''), // Included LGA in search pool
+            String(item.lga || ''), 
             String(item.stream || '')
           ];
         } else {
@@ -299,7 +298,7 @@ const App: React.FC = () => {
               {division === 'CIM' && <CIMModule entries={filteredData.cim} lga={lgaContext!} db={dbRef.current} userRole={userRole} stationDispositions={stationDispositions} />}
               {division === 'CWHS' && <CWHSModule entries={filteredData.cwhs} db={dbRef.current} userRole={userRole} lga={lgaContext!} />}
               {division === 'CDR' && <CDRModule entries={filteredData.cdr} lga={lgaContext!} db={dbRef.current} userRole={userRole} activeFormUrl={activeFormUrl} />}
-              {division === 'CDS' && <CDSModule groups={filteredData.cdsGroups} projects={filteredData.cdsProjects} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
+              {division === 'CDS' && <CDSModule groups={filteredData.cdsGroups} projects={filteredData.cdsGroups} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
               {division === 'SAED' && <SAEDModule entries={filteredData.saed} lga={lgaContext!} db={dbRef.current} userRole={userRole} />}
             </>
           )}
@@ -332,16 +331,20 @@ const App: React.FC = () => {
 const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching }: any) => {
   const [isUploading, setIsUploading] = useState(false);
   
-  // Refined filtering states
   const [lgaFilter, setLgaFilter] = useState<DauraLga | ''>(userRole === 'LGI' ? lgaContext : '');
   const [batchFilter, setBatchFilter] = useState<string>('');
 
-  // Upload state for ZI
+  const isSearchActive = useMemo(() => {
+    if (isSearching) return true;
+    if (batchFilter !== '') return true;
+    if (userRole === 'ZI' && lgaFilter !== '') return true;
+    return false;
+  }, [isSearching, batchFilter, lgaFilter, userRole]);
+
   const [selectedUploadLga, setSelectedUploadLga] = useState<DauraLga | ''>('');
   const [selectedUploadBatch, setSelectedUploadBatch] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Apply secondary multi-criteria filters
   const displayedEntries = useMemo(() => {
     return entries.filter((p: PersonnelEntry) => {
       const matchLga = !lgaFilter || String(p.lga).toLowerCase() === String(lgaFilter).toLowerCase();
@@ -404,9 +407,11 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-             <button onClick={() => downloadCSV(displayedEntries, `${userRole}_Filtered_Registry`)} className="px-4 py-2.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase border border-blue-100 flex items-center gap-2 hover:bg-blue-100 transition-all">
-               <DownloadIcon /> Export CSV
-             </button>
+             {isSearchActive && (
+               <button onClick={() => downloadCSV(displayedEntries, `${userRole}_Filtered_Registry`)} className="px-4 py-2.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase border border-blue-100 flex items-center gap-2 hover:bg-blue-100 transition-all">
+                 <DownloadIcon /> Export CSV
+               </button>
+             )}
 
              {userRole === 'ZI' && (
                <div className="flex flex-col sm:flex-row items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
@@ -439,7 +444,6 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
           </div>
         </div>
 
-        {/* Dynamic Refined Filters */}
         <div className="flex flex-wrap items-center gap-4 pt-6 border-t border-slate-50">
            <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2">
              <SearchIcon /> <span>Refine Search:</span>
@@ -470,7 +474,7 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
              </select>
            </div>
 
-           {(batchFilter || (userRole === 'ZI' && lgaFilter)) && (
+           {(batchFilter || (userRole === 'ZI' && lgaFilter !== '')) && (
              <button 
                onClick={() => {
                  if (userRole === 'ZI') setLgaFilter('');
@@ -483,18 +487,20 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
            )}
 
            <div className="ml-auto flex items-center gap-3">
-             <div className="px-3 py-1.5 bg-emerald-50 text-[#004d40] rounded-full text-[10px] font-black border border-emerald-100">
-               {displayedEntries.length} Records Found
-             </div>
+             {isSearchActive && (
+               <div className="px-3 py-1.5 bg-emerald-50 text-[#004d40] rounded-full text-[10px] font-black border border-emerald-100">
+                 {displayedEntries.length} Records Found
+               </div>
+             )}
            </div>
         </div>
       </div>
 
-      {!isSearching && !lgaFilter && !batchFilter ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-40 bg-white rounded-2xl border-2 border-dashed border-slate-200">
+      {!isSearchActive ? (
+        <div className="flex-1 flex flex-col items-center justify-center py-44 bg-white rounded-2xl border-2 border-dashed border-slate-200 shadow-inner">
            <SearchIcon />
            <p className="text-slate-400 text-[12px] font-medium mt-4 uppercase tracking-[0.2em]">
-             Enter Name/Code or select filters to retrieve personnel records
+             Enter Name/Code or apply filters to retrieve personnel records
            </p>
         </div>
       ) : (
@@ -572,11 +578,23 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
   const [newClearedBatch, setNewClearedBatch] = useState({ batch: '', males: 0, females: 0 });
   const [tempUnclearedList, setTempUnclearedList] = useState<{name: string, code: string, ppa: string, gsmNo: string, reason: string, gender: 'Male' | 'Female'}[]>([]);
   const [newDefaulter, setNewDefaulter] = useState({ name: '', code: '', ppa: '', gsmNo: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' as 'Male' | 'Female' });
+  
+  const [isGeneratingQuery, setIsGeneratingQuery] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentStationDisp?.batches) setTempBatches(currentStationDisp.batches);
     else setTempBatches([]);
   }, [currentStationDisp]);
+
+  const stationDefaulters = useMemo(() => {
+    const all: any[] = [];
+    entries.forEach((e: any) => {
+      if (e.unclearedList) {
+        e.unclearedList.forEach((u: any) => all.push({ ...u, auditMonth: e.month }));
+      }
+    });
+    return all;
+  }, [entries]);
 
   const handleSaveStationDisposition = async () => {
     const data = { lga, batches: tempBatches, totalMales: tempBatches.reduce((a,b)=>a+(b.males||0),0), totalFemales: tempBatches.reduce((a,b)=>a+(b.females||0),0), lastUpdated: new Date().toISOString() };
@@ -604,6 +622,30 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     await addData(db, "cim_clearance", data);
     setFormData({month:''}); setClearedBatches([]); setTempUnclearedList([]);
     window.alert("Audit record published.");
+  };
+
+  const handleQuickGenerateQuery = async (def: any) => {
+    setIsGeneratingQuery(def.code);
+    try {
+      const narrative = await generateDisciplinaryQuery(
+        def.name, 
+        def.code, 
+        lga, 
+        def.reason || 'Biometric clearance default', 
+        def.ppa || 'N/A'
+      );
+      generateOfficialPDF({ 
+        ...def, 
+        lga, 
+        letterText: narrative, 
+        month: def.auditMonth 
+      }, 'DISCIPLINARY_QUERY');
+    } catch (err) {
+      alert("AI Generation failed. Exporting standard query.");
+      generateOfficialPDF({ ...def, lga, month: def.auditMonth }, 'DISCIPLINARY_QUERY');
+    } finally {
+      setIsGeneratingQuery(null);
+    }
   };
 
   const zonalStats = useMemo(() => {
@@ -754,6 +796,7 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                <label className="text-[9px] font-black uppercase text-red-800 block mb-1">2. REGISTER DEFAULTER</label>
                <input placeholder="CORPS MEMBER NAME" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.name} onChange={e => setNewDefaulter({...newDefaulter, name: e.target.value.toUpperCase()})} />
                <input placeholder="STATE CODE" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.code} onChange={e => setNewDefaulter({...newDefaulter, code: e.target.value.toUpperCase()})} />
+               <input placeholder="PPA" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.ppa} onChange={e => setNewDefaulter({...newDefaulter, ppa: e.target.value.toUpperCase()})} />
                <button type="button" onClick={() => { if(newDefaulter.name && newDefaulter.code) { setTempUnclearedList([...tempUnclearedList, newDefaulter]); setNewDefaulter({ name: '', code: '', ppa: '', gsmNo: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' }); } }} className="w-full py-3 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase shadow-lg shadow-red-900/10 active:scale-95 transition-all">Flag Member</button>
             </div>
             <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-wider shadow-xl active:scale-95 transition-all">Publish Audit Report</button>
@@ -761,60 +804,143 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         </div>
       </div>
       <div className="flex-1 space-y-8 w-full">
-        <div className="bg-[#0f172a] rounded-xl shadow-2xl p-10 text-white flex flex-col md:flex-row justify-between items-center border border-white/5 relative overflow-hidden animate-official">
-           <div className="mb-10 md:mb-0 z-10 text-center md:text-left">
-              <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-400 mb-4 opacity-80">STATION STATISTICS</h2>
-              <div className="flex items-center gap-8 justify-center md:justify-start">
-                <span className="text-7xl font-black font-serif-heading">{(currentStationDisp?.totalMales + currentStationDisp?.totalFemales || 0)}</span>
-                <div className="h-12 w-px bg-white/10 hidden md:block"></div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none hidden md:block">TOTAL<br/>RECORDS</span>
+        {/* STATION STATISTICS BAR MATCHING IMAGE */}
+        <div className="bg-[#0f172a] rounded-xl shadow-2xl p-8 text-white flex flex-col md:flex-row justify-between items-center border border-white/5 relative overflow-hidden animate-official">
+           <div className="mb-6 md:mb-0 z-10 text-center md:text-left">
+              <h2 className="text-[9px] font-black uppercase tracking-[0.2em] text-[#10b981] mb-5">LOCAL STATION BIOMETRIC STATISTICS</h2>
+              <div className="flex items-center gap-4 justify-center md:justify-start">
+                <span className="text-6xl font-black font-serif-heading">{(currentStationDisp?.totalMales + currentStationDisp?.totalFemales || 0)}</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">REGISTERED<br/>CORPS MEMBERS</span>
               </div>
            </div>
-           <div className="flex gap-20 items-center z-10 md:pr-12">
-              <div className="text-center">
-                <p className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-widest">MALES</p>
-                <p className="text-5xl font-black text-blue-400">{(currentStationDisp?.totalMales || 0)}</p>
+           
+           <div className="flex flex-wrap items-center gap-8 z-10">
+              <div className="flex gap-10">
+                <div className="text-center">
+                  <p className="text-[9px] font-black uppercase text-slate-500 mb-2 tracking-widest">MALES</p>
+                  <p className="text-4xl font-black text-blue-400">{(currentStationDisp?.totalMales || 0)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] font-black uppercase text-slate-500 mb-2 tracking-widest">FEMALES</p>
+                  <p className="text-4xl font-black text-pink-400">{(currentStationDisp?.totalFemales || 0)}</p>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-widest">FEMALES</p>
-                <p className="text-5xl font-black text-pink-400">{(currentStationDisp?.totalFemales || 0)}</p>
+
+              <div className="flex items-center gap-3">
+                 <button className="w-12 h-12 bg-white/5 hover:bg-white/10 text-white rounded-xl flex items-center justify-center transition-all">
+                    <SpreadsheetIcon />
+                 </button>
+                 <button 
+                  onClick={() => setIsLedgerOpen(true)}
+                  className="bg-[#10b981] hover:bg-[#059669] text-white px-6 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95"
+                 >
+                   DEFAULTER LOGS
+                 </button>
               </div>
            </div>
         </div>
+
         <div>
-           <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest px-1">STATION AUDIT HISTORY</h3>
+           <h3 className="text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest px-1">SUBMITTED MONTHLY AUDITS</h3>
            <div className="space-y-6">
             {entries.length === 0 ? (
-              <p className="text-slate-300 uppercase font-black text-[11px] tracking-widest text-center py-20">No submitted audits yet.</p>
+              <div className="py-20 text-center bg-white rounded-xl border border-slate-100"><p className="text-slate-300 uppercase font-black text-[11px] tracking-widest">No submitted audits yet.</p></div>
             ) : entries.map((e: CIMClearance) => (
-              <div key={e.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden animate-official group p-10 hover:shadow-md transition-all duration-300">
-                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+              <div key={e.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden animate-official group hover:shadow-md transition-all duration-300">
+                 <div className="p-8 pb-4 flex justify-between items-start">
                    <div>
-                     <h4 className="text-[22px] font-black uppercase text-slate-800 tracking-tight leading-none mb-2">{e.month || '---'}</h4>
+                     <h4 className="text-[20px] font-black uppercase text-slate-800 tracking-tight leading-none mb-1.5">{e.month || '---'}</h4>
                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest opacity-60">AUDIT RECORD • {new Date(e.dateAdded).toLocaleDateString()}</p>
                    </div>
-                   <div className="flex items-center gap-14 md:ml-auto">
+                   <div className="flex gap-8">
                      <div className="text-center">
-                       <span className="block text-4xl font-black text-emerald-600 mb-0.5">{e.clearedCount || 0}</span>
-                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">CLEARED</span>
+                       <p className="text-[18px] font-black text-emerald-600 leading-none">{e.clearedCount || 0}</p>
+                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">CLEARED</p>
                      </div>
                      <div className="text-center">
-                       <span className="block text-4xl font-black text-red-500 mb-0.5">{e.unclearedList?.length || 0}</span>
-                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">FLAGGED</span>
+                       <p className="text-[18px] font-black text-red-500 leading-none">{e.unclearedList?.length || 0}</p>
+                       <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">FLAGGED</p>
                      </div>
                    </div>
                  </div>
+
                  {e.ziMinute && (
-                   <div className="bg-[#f0f9f6] p-6 rounded-xl border border-emerald-100/50">
-                      <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-2">ZI DIRECTIVE:</p>
+                   <div className="mx-8 mb-8 p-6 bg-[#f0f9f6] rounded-xl border border-emerald-100/50">
+                      <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-2">ZONAL HQ DIRECTIVE:</p>
                       <p className="text-[14px] text-slate-600 italic font-medium leading-relaxed">"{e.ziMinute}"</p>
                    </div>
                  )}
+
+                 <div className="px-8 pb-8 flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button onClick={() => shareData(`Audit ${e.month}`, `Station: ${e.lga}\nCleared: ${e.clearedCount}\nFlagged: ${e.unclearedList?.length}`)} className="p-2 text-slate-400 hover:text-blue-500 transition-colors"><ShareIcon /></button>
+                   <button onClick={() => generateOfficialPDF(e, 'CIM_AUDIT')} className="p-2 text-slate-400 hover:text-[#004d40] transition-colors"><DownloadIcon /></button>
+                 </div>
               </div>
             ))}
            </div>
         </div>
       </div>
+
+      {/* DEFAULTER REGISTRY MODAL FOR LGI TO GENERATE QUERIES */}
+      {isLedgerOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xl z-[4000] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-official flex flex-col max-h-[85vh]">
+            <div className="bg-[#0f172a] p-8 text-white flex justify-between items-center shrink-0">
+               <div>
+                 <h2 className="text-[14px] font-black uppercase tracking-[0.2em] mb-1">STATION DEFAULTER REGISTRY</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Official Disciplinary Management Log</p>
+               </div>
+               <button onClick={() => setIsLedgerOpen(false)} className="w-12 h-12 bg-white/10 hover:bg-red-500 rounded-full transition-all flex items-center justify-center">
+                 <LogOutIcon />
+               </button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+              {stationDefaulters.length === 0 ? (
+                <div className="py-20 text-center">
+                   <FileTextIcon />
+                   <p className="mt-4 text-slate-400 font-black text-[11px] uppercase tracking-widest">No disciplinary flags found for this station.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  {stationDefaulters.map((def, idx) => (
+                    <div key={idx} className="bg-slate-50 border border-slate-100 p-6 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-emerald-200 transition-all group">
+                       <div>
+                          <p className="text-[14px] font-black text-slate-800 uppercase mb-1">{def.name}</p>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-[11px] font-bold text-[#004d40] tracking-widest bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{def.code}</span>
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{def.auditMonth} AUDIT</span>
+                          </div>
+                       </div>
+                       <div className="flex items-center gap-4 w-full md:w-auto shrink-0">
+                          <button 
+                            disabled={isGeneratingQuery === def.code}
+                            onClick={() => handleQuickGenerateQuery(def)}
+                            className="flex-1 md:flex-none bg-[#004d40] hover:bg-[#00695c] text-white px-6 py-3 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            {isGeneratingQuery === def.code ? (
+                              <>
+                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                AI GENERATING...
+                              </>
+                            ) : (
+                              <>
+                                <FileTextIcon />
+                                GENERATE QUERY
+                              </>
+                            )}
+                          </button>
+                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="bg-slate-50 border-t p-6 text-center shrink-0">
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Powered by Gemini AI • Disciplinary Narrative Automation</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -894,7 +1020,6 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
                "{cm.misconduct || 'No narrative provided.'}"
              </div>
 
-             {/* Evidence Gallery Strip */}
              {(cm.responseImage || (cm.evidenceDocuments && cm.evidenceDocuments.length > 0)) && (
                <div className="mx-10 mt-8 animate-official">
                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4">DOCKET ASSETS & PROOF:</p>
@@ -980,7 +1105,6 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
         ))}
       </div>
 
-      {/* Modern High-Res Document Viewer Modal */}
       {previewDoc && (
         <div 
           className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[5000] flex flex-col items-center justify-center p-4 md:p-12 animate-official" 
