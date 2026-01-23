@@ -92,7 +92,7 @@ export interface SAEDCenter {
   dateAdded: string;
 }
 
-export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_back_to_LGI' | 'Forwarded_to_CDR' | 'Minuted_to_CIM';
+export type CDRStatus = 'Pending' | 'Responded' | 'Forwarded_to_ZI' | 'Minuted_back_to_LGI' | 'Forwarded_to_CDR' | 'Minuted_to_CIM' | 'Closed';
 
 export interface CDRCase {
   id: string;
