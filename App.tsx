@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ReportCategory, 
@@ -126,10 +127,11 @@ const App: React.FC = () => {
 
   const filteredData = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    
     const filterFn = (items: any[], category: string) => {
       let filtered = items;
       
-      // Mandatory LGA Filter for LGI (Zonal Inspector sees everything)
+      // Strict Context Isolation: LGI only sees records belonging to their assigned LGA
       if (userRole === 'LGI' && lgaContext) {
         filtered = filtered.filter(i => 
           String(i.lga).trim().toLowerCase() === String(lgaContext).trim().toLowerCase()
@@ -138,11 +140,20 @@ const App: React.FC = () => {
 
       return filtered.filter(item => {
         if (!q) return true;
-        // Expanded search pool for both roles within their allowed context
-        const searchPool: (string | undefined)[] = [
-          item.surname, item.othernames, item.name, item.stateCode, item.lga, item.company, item.ppa,
-          item.gsmNo, item.stream, item.batch, item.misconduct
-        ];
+        
+        let searchPool: (string | undefined)[] = [];
+        
+        // Custom search restrictions for Personnel Registry module based on role
+        if (category === 'personnel' && userRole === 'LGI') {
+          // LGI search restricted to Name or State Code per request
+          searchPool = [item.surname, item.othernames, item.stateCode];
+        } else {
+          // Comprehensive search for ZI and other administrative modules
+          searchPool = [
+            item.surname, item.othernames, item.name, item.stateCode, item.lga, item.company, item.ppa,
+            item.gsmNo, item.stream, item.batch, item.misconduct
+          ];
+        }
         
         return searchPool.filter(Boolean).map(s => String(s).toLowerCase()).some(s => s.includes(q));
       });
@@ -679,6 +690,7 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
   const [previewDoc, setPreviewDoc] = useState<string | null>(null);
   const [caseToClose, setCaseToClose] = useState<{id: string, currentMinute: string} | null>(null);
 
+  // Predefined closure reasons as requested
   const closureReasons = [
     "Satisfactory Explanation Received",
     "Disciplinary Penalty Served",
@@ -704,20 +716,20 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
 
   const finalizeClosure = async (reason: string) => {
     if (!caseToClose) return;
-    const finalMinute = `${caseToClose.currentMinute}\n\n[CASE CLOSED]: ${reason} (Ref: ${new Date().toLocaleDateString()})`;
+    const finalMinute = `${caseToClose.currentMinute}\n\n[OFFICIAL CLOSURE]: ${reason} (Ref: ${new Date().toLocaleDateString()})`;
     await updateData(db, "cdr_cases", caseToClose.id, { 
       status: 'Closed' as CDRStatus, 
       ziMinute: finalMinute 
     });
     setCaseToClose(null);
-    window.alert("Case Docket Finalized and Closed.");
+    window.alert("Case Docket Finalized and Closed Successfully.");
   };
 
   const handleResponseUpload = async (id: string, files: FileList | null) => {
     if (!files || files.length === 0) return;
     const base64 = await fileToBase64(files[0]);
     await updateData(db, "cdr_cases", id, { responseImage: base64, status: 'Responded' as CDRStatus });
-    window.alert("Query response linked.");
+    window.alert("Query response document linked to case.");
   };
 
   const handleEvidenceUpload = async (id: string, files: FileList | null, currentDocs: string[] = []) => {
@@ -728,7 +740,7 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
       newDocs.push(b64);
     }
     await updateData(db, "cdr_cases", id, { evidenceDocuments: newDocs });
-    window.alert(`${files.length} items added to evidence.`);
+    window.alert(`${files.length} items added to evidentiary archive.`);
   };
 
   return (
@@ -835,27 +847,28 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
       {/* Closure Reason Selection Modal */}
       {caseToClose && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[5000] flex items-center justify-center p-4 animate-official">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-10 space-y-8">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-10 space-y-8 border border-white/10">
             <div className="text-center">
-              <h3 className="text-lg font-black uppercase text-slate-800 mb-2">FINAL CASE CLOSURE</h3>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Select official reason for finalizing this docket</p>
+              <h3 className="text-xl font-black uppercase text-slate-800 mb-2">FINAL CASE CLOSURE</h3>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Select the official reason for finalizing this disciplinary docket</p>
             </div>
             <div className="grid grid-cols-1 gap-3">
               {closureReasons.map((reason) => (
                 <button 
                   key={reason} 
                   onClick={() => finalizeClosure(reason)}
-                  className="p-4 bg-slate-50 hover:bg-[#004d40] hover:text-white border border-slate-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all text-left shadow-sm active:scale-95"
+                  className="p-4 bg-slate-50 hover:bg-[#004d40] hover:text-white border border-slate-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all text-left shadow-sm active:scale-95 group flex items-center justify-between"
                 >
                   {reason}
+                  <PlusIcon />
                 </button>
               ))}
             </div>
             <button 
               onClick={() => setCaseToClose(null)} 
-              className="w-full py-4 bg-slate-100 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 hover:text-red-500 transition-all"
+              className="w-full py-4 bg-slate-100 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 hover:text-red-500 transition-all font-bold"
             >
-              Cancel Closure
+              Cancel Finalization
             </button>
           </div>
         </div>
