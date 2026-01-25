@@ -1,7 +1,8 @@
 
 export function downloadCSV(data: any[], filename: string) {
   if (data.length === 0) {
-    alert("No data to export.");
+    // Fix: Use (window as any).alert to avoid 'Cannot find name alert' error
+    (window as any).alert("No data to export.");
     return;
   }
 
@@ -24,25 +25,37 @@ export function downloadCSV(data: any[], filename: string) {
   const csvString = csvRows.join('\n');
   const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
+  // Fix: Use (window as any).document to satisfy environment where global document is not defined
+  const link = (window as any).document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
   link.style.visibility = 'hidden';
-  document.body.appendChild(link);
+  // Fix: Use (window as any).document to satisfy environment where global document is not defined
+  (window as any).document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  // Fix: Use (window as any).document to satisfy environment where global document is not defined
+  (window as any).document.body.removeChild(link);
 }
 
 export function shareData(title: string, text: string) {
-  if (navigator.share) {
-    navigator.share({
+  // Fix: Use (window as any).navigator to access share and clipboard functionality
+  const nav = (window as any).navigator;
+  // Fix: Use (window as any).location for URL access
+  const loc = (window as any).location;
+
+  if (nav && nav.share) {
+    nav.share({
       title: title,
       text: text,
-      url: window.location.href,
+      url: loc.href,
     }).catch(console.error);
   } else {
     // Fallback: Copy to clipboard
-    navigator.clipboard.writeText(`${title}\n\n${text}\n\nView at: ${window.location.href}`);
-    alert("Summary copied to clipboard!");
+    // Fix: Use (window as any).navigator.clipboard
+    if (nav && nav.clipboard) {
+      nav.clipboard.writeText(`${title}\n\n${text}\n\nView at: ${loc.href}`);
+    }
+    // Fix: Use (window as any).alert to avoid 'Cannot find name alert' error
+    (window as any).alert("Summary copied to clipboard!");
   }
 }

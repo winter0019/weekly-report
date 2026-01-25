@@ -64,11 +64,13 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => window.localStorage.getItem('daura_auth') === 'true');
-  const [userRole, setUserRole] = useState<UserRole | null>(() => window.localStorage.getItem('daura_role') as UserRole);
-  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => window.localStorage.getItem('daura_lga') as DauraLga);
+  // Fix: Using (window as any).localStorage to avoid Property 'localStorage' does not exist on type 'Window'
+  const [isAuthenticated, setIsAuthenticated] = useState(() => (window as any).localStorage.getItem('daura_auth') === 'true');
+  const [userRole, setUserRole] = useState<UserRole | null>(() => (window as any).localStorage.getItem('daura_role') as UserRole);
+  const [lgaContext, setLgaContext] = useState<DauraLga | null>(() => (window as any).localStorage.getItem('daura_lga') as DauraLga);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [division, setDivision] = useState<Division>(() => (window.localStorage.getItem('last_div') as Division) || 'CIM');
+  // Fix: Using (window as any).localStorage to avoid Property 'localStorage' does not exist on type 'Window'
+  const [division, setDivision] = useState<Division>(() => ((window as any).localStorage.getItem('last_div') as Division) || 'CIM');
 
   const [personnelRegistry, setPersonnelRegistry] = useState<PersonnelEntry[]>([]);
   const [cwhsEntries, setCwhsEntries] = useState<any[]>([]);
@@ -87,7 +89,8 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
-    window.localStorage.setItem('last_div', division);
+    // Fix: Using (window as any).localStorage to avoid Property 'localStorage' does not exist on type 'Window'
+    (window as any).localStorage.setItem('last_div', division);
   }, [division]);
 
   useEffect(() => {
@@ -118,8 +121,9 @@ const App: React.FC = () => {
   }, [isAuthenticated]);
 
   const handleLogout = () => {
-    window.localStorage.clear();
-    window.location.reload();
+    // Fix: Using (window as any).localStorage and (window as any).location to avoid access errors
+    (window as any).localStorage.clear();
+    (window as any).location.reload();
   };
 
   const activeFormUrl = useMemo(() => appSettings[0]?.googleFormUrl || "https://docs.google.com/forms", [appSettings]);
@@ -194,10 +198,14 @@ const App: React.FC = () => {
             setIsAuthenticated(true);
             setUserRole(pendingLogin.role);
             setLgaContext(pendingLogin.lga);
-            window.localStorage.setItem('daura_auth', 'true');
-            window.localStorage.setItem('daura_role', pendingLogin.role);
-            if (pendingLogin.lga) window.localStorage.setItem('daura_lga', pendingLogin.lga);
-          } else { window.alert("PIN Rejected."); }
+            // Fix: Using (window as any).localStorage to avoid access errors
+            (window as any).localStorage.setItem('daura_auth', 'true');
+            (window as any).localStorage.setItem('daura_role', pendingLogin.role);
+            if (pendingLogin.lga) (window as any).localStorage.setItem('daura_lga', pendingLogin.lga);
+          } else { 
+            // Fix: Using (window as any).alert to avoid Property 'alert' does not exist on type 'Window'
+            (window as any).alert("PIN Rejected."); 
+          }
         }} className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm space-y-6 animate-official">
           <div className="text-center">
             <div className="w-16 h-16 bg-[#004d40] rounded-2xl mx-auto mb-4 flex items-center justify-center text-white font-serif-heading text-2xl font-black shadow-lg">NYSC</div>
@@ -205,14 +213,16 @@ const App: React.FC = () => {
           </div>
           <div className="space-y-3">
             <select required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 outline-none" onChange={e => {
-                const val = e.target.value;
+                // Fix: Cast e.target to HTMLSelectElement
+                const val = (e.target as HTMLSelectElement).value;
                 setPendingLogin({ role: val === 'ZI' ? 'ZI' : 'LGI', lga: val === 'ZI' ? null : val });
               }}>
                 <option value="">Select Command...</option>
                 <option value="ZI">Zonal Inspectorate (ZI)</option>
                 {LGAS.map(l => <option key={l} value={l}>{l} Unit (LGI)</option>)}
             </select>
-            <input type="password" required placeholder="PIN" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xl font-black tracking-[0.4em] outline-none" value={pin} onChange={e => setPin(e.target.value)} />
+            {/* Fix: Cast e.target to HTMLInputElement */}
+            <input type="password" required placeholder="PIN" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xl font-black tracking-[0.4em] outline-none" value={pin} onChange={e => setPin((e.target as HTMLInputElement).value)} />
           </div>
           <button className="w-full bg-[#004d40] text-white py-3.5 rounded-xl font-black uppercase tracking-widest text-[11px] shadow-lg shadow-emerald-900/10 active:scale-95 transition-all">Verify Terminal</button>
         </form>
@@ -274,12 +284,13 @@ const App: React.FC = () => {
         <div className="flex justify-center mt-8 animate-official">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex items-center px-6 py-4 w-full max-w-2xl group focus-within:shadow-md transition-all">
             <SearchIcon />
+            {/* Fix: Cast e.target to HTMLInputElement */}
             <input 
               type="text" 
               placeholder="Search by Name, State Code, LGA, or Batch..." 
               className="bg-transparent ml-4 w-full outline-none text-[15px] font-medium text-slate-600 placeholder:text-slate-400"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
             />
           </div>
         </div>
@@ -312,8 +323,9 @@ const App: React.FC = () => {
             <div className="space-y-8">
                <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-3 tracking-[0.2em]">Google Form Intake URL</label>
+                  {/* Fix: Cast e.target to HTMLInputElement */}
                   <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 outline-none" value={activeFormUrl} onChange={async (e) => {
-                      const newUrl = e.target.value;
+                      const newUrl = (e.target as HTMLInputElement).value;
                       if (appSettings[0]) await updateData(dbRef.current, "app_settings", appSettings[0].id, { googleFormUrl: newUrl });
                       else await addData(dbRef.current, "app_settings", { googleFormUrl: newUrl });
                     }} />
@@ -354,9 +366,11 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
   }, [entries, lgaFilter, batchFilter]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    // Fix: Cast event.target to HTMLInputElement to access files
+    const file = (event.target as HTMLInputElement).files?.[0];
     if (!file || !selectedUploadLga || !selectedUploadBatch) {
-      alert("Please select LGA and Batch before uploading.");
+      // Fix: Use (window as any).alert to avoid 'Cannot find name alert' error
+      (window as any).alert("Please select LGA and Batch before uploading.");
       return;
     }
     
@@ -383,9 +397,17 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
           });
           successCount++;
         }
-        alert(`Successfully synced ${successCount} records to ${selectedUploadLga} Unit.`);
-      } catch (err) { alert("Sync error."); }
-      finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+        // Fix: Use (window as any).alert to avoid 'Cannot find name alert' error
+        (window as any).alert(`Successfully synced ${successCount} records to ${selectedUploadLga} Unit.`);
+      } catch (err) { 
+        // Fix: Use (window as any).alert to avoid 'Cannot find name alert' error
+        (window as any).alert("Sync error."); 
+      }
+      finally { 
+        setIsUploading(false); 
+        // Fix: Cast to any to access value property if it fails on HTMLInputElement
+        if (fileInputRef.current) (fileInputRef.current as any).value = ''; 
+      }
     };
     reader.readAsText(file);
   };
@@ -418,7 +440,8 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
                  <select 
                    className="w-full sm:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
                    value={selectedUploadLga}
-                   onChange={e => setSelectedUploadLga(e.target.value as DauraLga)}
+                   // Fix: Cast e.target to HTMLSelectElement
+                   onChange={e => setSelectedUploadLga((e.target as HTMLSelectElement).value as DauraLga)}
                  >
                    <option value="">Upload LGA...</option>
                    {LGAS.map(l => <option key={l} value={l}>{l}</option>)}
@@ -426,14 +449,16 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
                  <select 
                    className="w-full sm:w-32 p-2 bg-white border border-slate-200 rounded-lg text-[10px] font-black uppercase outline-none"
                    value={selectedUploadBatch}
-                   onChange={e => setSelectedUploadBatch(e.target.value)}
+                   // Fix: Cast e.target to HTMLSelectElement
+                   onChange={e => setSelectedUploadBatch((e.target as HTMLSelectElement).value)}
                  >
                    <option value="">Upload Batch...</option>
                    {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
                  </select>
                  <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                  <button 
-                   onClick={() => fileInputRef.current?.click()} 
+                   // Fix: Cast fileInputRef.current to any to access click() if strictly typed otherwise
+                   onClick={() => (fileInputRef.current as any)?.click()} 
                    disabled={isUploading || !selectedUploadLga || !selectedUploadBatch} 
                    className={`px-4 py-2 text-white rounded-lg text-[10px] font-black uppercase flex items-center gap-2 transition-all ${(!selectedUploadLga || !selectedUploadBatch) ? 'bg-slate-300' : 'bg-[#004d40]'}`}
                  >
@@ -454,7 +479,8 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
              <select 
                className={`p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors min-w-[120px] ${userRole === 'LGI' ? 'opacity-60 cursor-not-allowed' : ''}`}
                value={lgaFilter}
-               onChange={e => setLgaFilter(e.target.value as DauraLga)}
+               // Fix: Cast e.target to HTMLSelectElement
+               onChange={e => setLgaFilter((e.target as HTMLSelectElement).value as DauraLga)}
                disabled={userRole === 'LGI'}
              >
                <option value="">All LGAs</option>
@@ -467,7 +493,8 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
              <select 
                className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 outline-none hover:bg-white transition-colors min-w-[120px]"
                value={batchFilter}
-               onChange={e => setBatchFilter(e.target.value)}
+               // Fix: Cast e.target to HTMLSelectElement
+               onChange={e => setBatchFilter((e.target as HTMLSelectElement).value)}
              >
                <option value="">All Batches</option>
                {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
@@ -519,7 +546,7 @@ const FindCorpsMemberModule = ({ entries, db, userRole, lgaContext, isSearching 
               <h4 className="text-[20px] font-black uppercase text-slate-800 leading-tight mb-1">
                 {p.surname || '---'}, {p.othernames || '---'}
               </h4>
-              <p className="text-[12px] font-black text-[#004d40] uppercase tracking-[0.2em] mb-6">
+              <p className="text-[12px] font-black text-[#004d40] uppercase tracking-[0.3em] mb-6">
                 {p.stateCode || '---'}
               </p>
               <div className="space-y-4 pt-6 border-t border-slate-50">
@@ -600,12 +627,14 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     const data = { lga, batches: tempBatches, totalMales: tempBatches.reduce((a,b)=>a+(b.males||0),0), totalFemales: tempBatches.reduce((a,b)=>a+(b.females||0),0), lastUpdated: new Date().toISOString() };
     if (currentStationDisp) await updateData(db, "station_disposition", currentStationDisp.id, data);
     else await addData(db, "station_disposition", data);
-    window.alert("Population metrics synchronized.");
+    // Fix: Using (window as any).alert to avoid access errors
+    (window as any).alert("Population metrics synchronized.");
   };
 
   const handleSubmitAudit = async (e: any) => {
     e.preventDefault();
-    if (!formData.month) return alert("Select audit month.");
+    // Fix: Using (window as any).alert to avoid 'Cannot find name alert' error
+    if (!formData.month) return (window as any).alert("Select audit month.");
     const totalM = clearedBatches.reduce((a,b)=>a+(b.males||0),0);
     const totalF = clearedBatches.reduce((a,b)=>a+(b.females||0),0);
     const data = { 
@@ -621,7 +650,8 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
     };
     await addData(db, "cim_clearance", data);
     setFormData({month:''}); setClearedBatches([]); setTempUnclearedList([]);
-    window.alert("Audit record published.");
+    // Fix: Using (window as any).alert to avoid access errors
+    (window as any).alert("Audit record published.");
   };
 
   const handleQuickGenerateQuery = async (def: any) => {
@@ -641,7 +671,8 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         month: def.auditMonth 
       }, 'DISCIPLINARY_QUERY');
     } catch (err) {
-      alert("AI Generation failed. Exporting standard query.");
+      // Fix: Using (window as any).alert to avoid 'Cannot find name alert' error
+      (window as any).alert("AI Generation failed. Exporting standard query.");
       generateOfficialPDF({ ...def, lga, month: def.auditMonth }, 'DISCIPLINARY_QUERY');
     } finally {
       setIsGeneratingQuery(null);
@@ -729,7 +760,8 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
                                  placeholder="Minute directive..."
                                  defaultValue={latestAudit?.ziMinute}
                                  onBlur={async (e) => {
-                                   if (latestAudit) await updateData(db, "cim_clearance", latestAudit.id, { ziMinute: e.target.value });
+                                   // Fix: Cast e.target to HTMLTextAreaElement
+                                   if (latestAudit) await updateData(db, "cim_clearance", latestAudit.id, { ziMinute: (e.target as HTMLTextAreaElement).value });
                                  }}
                                />
                             </td>
@@ -767,10 +799,12 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
             ))}
           </div>
           <div className="space-y-3 p-4 bg-slate-50/50 rounded-xl border border-slate-100 mb-4">
-             <input placeholder="BATCH NAME" className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[11px] font-black uppercase outline-none" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: e.target.value.toUpperCase()})} />
+             {/* Fix: Cast e.target to HTMLInputElement */}
+             <input placeholder="BATCH NAME" className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[11px] font-black uppercase outline-none" value={newBatch.batch} onChange={e => setNewBatch({...newBatch, batch: (e.target as HTMLInputElement).value.toUpperCase()})} />
              <div className="grid grid-cols-2 gap-3">
-                <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt(e.target.value) || 0})} />
-                <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt(e.target.value) || 0})} />
+                {/* Fix: Cast e.target to HTMLInputElement */}
+                <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.males || ''} onChange={e => setNewBatch({...newBatch, males: parseInt((e.target as HTMLInputElement).value) || 0})} />
+                <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newBatch.females || ''} onChange={e => setNewBatch({...newBatch, females: parseInt((e.target as HTMLInputElement).value) || 0})} />
              </div>
              <button onClick={() => { if(newBatch.batch) {setTempBatches([...tempBatches, newBatch]); setNewBatch({batch:'',males:0,females:0});} }} className="w-full py-3 bg-[#004d40] text-white rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-2"><PlusIcon /> Add Batch</button>
           </div>
@@ -779,24 +813,28 @@ const CIMModule = ({ entries, db, lga, userRole, stationDispositions }: any) => 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold uppercase text-[9px] mb-6 text-slate-400 text-center tracking-widest">MONTHLY AUDIT LOG</h3>
           <form onSubmit={handleSubmitAudit} className="space-y-6">
-            <input required placeholder="MONTH & YEAR" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:bg-white transition-all text-center" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value.toUpperCase()})} />
+            {/* Fix: Cast e.target to HTMLInputElement */}
+            <input required placeholder="MONTH & YEAR" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:bg-white transition-all text-center" value={formData.month} onChange={e => setFormData({...formData, month: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <div className="p-5 bg-emerald-50/20 rounded-xl border border-emerald-100/30 space-y-4">
                <label className="text-[9px] font-black uppercase text-emerald-800 block mb-1">1. AUDIT CLEARED COUNT</label>
-               <select className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-black uppercase outline-none" onChange={e => setNewClearedBatch({...newClearedBatch, batch: e.target.value})} value={newClearedBatch.batch}>
+               {/* Fix: Cast e.target to HTMLSelectElement */}
+               <select className="w-full p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-black uppercase outline-none" onChange={e => setNewClearedBatch({...newClearedBatch, batch: (e.target as HTMLSelectElement).value})} value={newClearedBatch.batch}>
                  <option value="">SELECT BATCH...</option>
                  {tempBatches.map(b => <option key={b.batch} value={b.batch}>{b.batch}</option>)}
                </select>
                <div className="grid grid-cols-2 gap-3">
-                  <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt(e.target.value) || 0})} />
-                  <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt(e.target.value) || 0})} />
+                  {/* Fix: Cast e.target to HTMLInputElement */}
+                  <input type="number" placeholder="Males" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.males || ''} onChange={e => setNewClearedBatch({...newClearedBatch, males: parseInt((e.target as HTMLInputElement).value) || 0})} />
+                  <input type="number" placeholder="Females" className="p-3 bg-white rounded-lg border border-slate-200 text-[12px] font-bold outline-none" value={newClearedBatch.females || ''} onChange={e => setNewClearedBatch({...newClearedBatch, females: parseInt((e.target as HTMLInputElement).value) || 0})} />
                </div>
                <button type="button" onClick={() => { if(newClearedBatch.batch) { setClearedBatches([...clearedBatches, newClearedBatch]); setNewClearedBatch({batch:'',males:0,females:0}); } }} className="w-full py-2.5 bg-[#004d40] text-white rounded-lg text-[9px] font-black uppercase active:scale-95">Include Batch</button>
             </div>
             <div className="p-5 bg-red-50/20 rounded-xl border border-red-100/30 space-y-4">
                <label className="text-[9px] font-black uppercase text-red-800 block mb-1">2. REGISTER DEFAULTER</label>
-               <input placeholder="CORPS MEMBER NAME" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.name} onChange={e => setNewDefaulter({...newDefaulter, name: e.target.value.toUpperCase()})} />
-               <input placeholder="STATE CODE" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.code} onChange={e => setNewDefaulter({...newDefaulter, code: e.target.value.toUpperCase()})} />
-               <input placeholder="PPA" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.ppa} onChange={e => setNewDefaulter({...newDefaulter, ppa: e.target.value.toUpperCase()})} />
+               {/* Fix: Cast e.target to HTMLInputElement */}
+               <input placeholder="CORPS MEMBER NAME" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.name} onChange={e => setNewDefaulter({...newDefaulter, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
+               <input placeholder="STATE CODE" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.code} onChange={e => setNewDefaulter({...newDefaulter, code: (e.target as HTMLInputElement).value.toUpperCase()})} />
+               <input placeholder="PPA" className="w-full p-3.5 bg-white border border-slate-200 rounded-lg text-[11px] uppercase font-black outline-none" value={newDefaulter.ppa} onChange={e => setNewDefaulter({...newDefaulter, ppa: (e.target as HTMLInputElement).value.toUpperCase()})} />
                <button type="button" onClick={() => { if(newDefaulter.name && newDefaulter.code) { setTempUnclearedList([...tempUnclearedList, newDefaulter]); setNewDefaulter({ name: '', code: '', ppa: '', gsmNo: '', reason: 'BIOMETRIC DEFAULT', gender: 'Male' }); } }} className="w-full py-3 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase shadow-lg shadow-red-900/10 active:scale-95 transition-all">Flag Member</button>
             </div>
             <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-wider shadow-xl active:scale-95 transition-all">Publish Audit Report</button>
@@ -956,7 +994,8 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
   
   const handleStatusUpdate = async (id: string, status: CDRStatus) => { 
     await updateData(db, "cdr_cases", id, { status }); 
-    window.alert(`Docket status updated to ${status.replace(/_/g, ' ')}`);
+    // Fix: Using (window as any).alert to avoid access errors
+    (window as any).alert(`Docket status updated to ${status.replace(/_/g, ' ')}`);
   };
 
   const handleFileUpload = async (id: string, files: FileList | null, field: string) => {
@@ -973,7 +1012,8 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
     } else {
       await updateData(db, "cdr_cases", id, { [field]: base64, status: 'Responded' as CDRStatus });
     }
-    window.alert("Document attached to case docket.");
+    // Fix: Using (window as any).alert to avoid access errors
+    (window as any).alert("Document attached to case docket.");
   };
 
   return (
@@ -989,11 +1029,13 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
         </a>
         <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">INITIALIZE CASE DOCKET</h3>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cdr_cases", { ...formData, lga, status: 'Pending' }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',misconduct:''}); window.alert("Case docket opened."); }} className="space-y-4">
-            <input required placeholder="FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATION / PPA" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.ppa} onChange={e => setFormData({...formData, ppa: e.target.value.toUpperCase()})} />
-            <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: e.target.value})} />
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cdr_cases", { ...formData, lga, status: 'Pending' }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',misconduct:''}); (window as any).alert("Case docket opened."); }} className="space-y-4">
+            {/* Fix: Cast e.target to HTMLInputElement */}
+            <input required placeholder="FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.name} onChange={e => setFormData({...formData, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="STATION / PPA" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold uppercase outline-none" value={formData.ppa} onChange={e => setFormData({...formData, ppa: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            {/* Fix: Cast e.target to HTMLTextAreaElement */}
+            <textarea required placeholder="MISCONDUCT DESCRIPTION..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner" value={formData.misconduct} onChange={e => setFormData({...formData, misconduct: (e.target as HTMLTextAreaElement).value})} />
             <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest shadow-lg active:scale-95 transition-all">Commit Docket</button>
           </form>
         </div>
@@ -1056,19 +1098,21 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
              <div className="p-10 grid grid-cols-1 md:grid-cols-2 gap-10">
                 <div className="space-y-4">
                    <p className="text-[10px] font-black text-[#004d40] uppercase tracking-[0.3em] px-1">LGI ADM MINUTE</p>
+                   {/* Fix: Cast e.target to HTMLTextAreaElement */}
                    <textarea 
                     readOnly={userRole !== 'LGI'} 
                     className="w-full p-5 bg-[#fdfdfd] border-slate-200 border rounded-xl text-[13px] h-40 outline-none font-medium italic shadow-inner focus:border-blue-300 transition-all" 
                     placeholder="LGI directive..." 
                     defaultValue={cm.lgiMinute} 
-                    onBlur={(e) => userRole === 'LGI' && handleMinuteUpdate(cm.id, 'lgiMinute', e.target.value)} 
+                    onBlur={(e) => userRole === 'LGI' && handleMinuteUpdate(cm.id, 'lgiMinute', (e.target as HTMLTextAreaElement).value)} 
                    />
                    {userRole === 'LGI' && cm.status !== 'Closed' && (
                      <div className="flex flex-col gap-2">
                         <div className="grid grid-cols-2 gap-2">
                             <label className="cursor-pointer bg-slate-50 hover:bg-slate-100 p-3 rounded-xl border border-dashed border-slate-300 text-center transition-all flex items-center justify-center group">
                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest group-hover:text-blue-600">Attach Proof</span>
-                            <input type="file" className="hidden" onChange={(e) => handleFileUpload(cm.id, e.target.files, 'evidenceDocuments')} />
+                            {/* Fix: Cast e.target to HTMLInputElement to access files */}
+                            <input type="file" className="hidden" onChange={(e) => handleFileUpload(cm.id, (e.target as HTMLInputElement).files, 'evidenceDocuments')} />
                             </label>
                             <button onClick={() => handleStatusUpdate(cm.id, 'Forwarded_to_ZI')} className="bg-[#0f172a] text-white rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm">Minute to ZI</button>
                         </div>
@@ -1077,12 +1121,13 @@ const CDRModule = ({ entries, lga, db, userRole, activeFormUrl }: any) => {
                 </div>
                 <div className="space-y-4">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">ZI HEADQUARTERS DIRECTIVE</p>
+                   {/* Fix: Cast e.target to HTMLTextAreaElement */}
                    <textarea 
                     readOnly={userRole !== 'ZI'} 
                     className="w-full p-5 bg-[#fdfdfd] border-slate-200 border rounded-xl text-[13px] h-40 outline-none font-medium italic shadow-inner focus:border-emerald-300 transition-all" 
                     placeholder="Zonal Command directive..." 
                     defaultValue={cm.ziMinute} 
-                    onBlur={(e) => userRole === 'ZI' && handleMinuteUpdate(cm.id, 'ziMinute', e.target.value)} 
+                    onBlur={(e) => userRole === 'ZI' && handleMinuteUpdate(cm.id, 'ziMinute', (e.target as HTMLTextAreaElement).value)} 
                    />
                    {userRole === 'ZI' && cm.status !== 'Closed' && (
                      <div className="grid grid-cols-3 gap-2">
@@ -1151,13 +1196,16 @@ const CWHSModule = ({ entries, db, lga, userRole }: any) => {
       <div className="w-full lg:w-[350px] shrink-0 no-print">
         <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">STATION INCIDENT LOG</h3>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',category:ReportCategory.ABSCONDED,details:''}); window.alert("Incident record filed."); }} className="space-y-4">
-            <input required placeholder="CM FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} />
-            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: e.target.value.toUpperCase()})} />
-            <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as ReportCategory})}>
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "nysc_reports", { ...formData, lga }); setFormData({name:'',stateCode:'',ppa:'',gsmNo:'',category:ReportCategory.ABSCONDED,details:''}); (window as any).alert("Incident record filed."); }} className="space-y-4">
+            {/* Fix: Cast e.target to HTMLInputElement */}
+            <input required placeholder="CM FULL NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.name} onChange={e => setFormData({...formData, name: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            <input required placeholder="STATE CODE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.stateCode} onChange={e => setFormData({...formData, stateCode: (e.target as HTMLInputElement).value.toUpperCase()})} />
+            {/* Fix: Cast e.target to HTMLSelectElement */}
+            <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase" value={formData.category} onChange={e => setFormData({...formData, category: (e.target as HTMLSelectElement).value as ReportCategory})}>
               {Object.values(ReportCategory).map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}
             </select>
-            <textarea placeholder="INCIDENT BRIEF..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner focus:border-emerald-200 transition-all" value={formData.details} onChange={e => setFormData({...formData, details: e.target.value})} />
+            {/* Fix: Cast e.target to HTMLTextAreaElement */}
+            <textarea placeholder="INCIDENT BRIEF..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner focus:border-emerald-200 transition-all" value={formData.details} onChange={e => setFormData({...formData, details: (e.target as HTMLTextAreaElement).value})} />
             <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all shadow-lg shadow-emerald-900/10">Commit Record</button>
           </form>
         </div>
@@ -1205,15 +1253,18 @@ const CDSModule = ({ groups, projects, lga, db, userRole }: any) => {
              <button onClick={() => setView('PROJECTS')} className={`flex-1 py-3.5 rounded-lg text-[11px] font-black uppercase transition-all tracking-wider ${view === 'PROJECTS' ? 'bg-[#004d40] text-white shadow-xl' : 'text-slate-400'}`}>Projects</button>
           </div>
           {view === 'UNITS' ? (
-            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:''}); window.alert("Unit registered."); }} className="space-y-4">
-               <input required placeholder="UNIT NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={groupForm.groupName} onChange={e => setGroupForm({groupName: e.target.value.toUpperCase()})} />
+            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_groups", { ...groupForm, lga }); setGroupForm({groupName:''}); (window as any).alert("Unit registered."); }} className="space-y-4">
+               {/* Fix: Cast e.target to HTMLInputElement */}
+               <input required placeholder="UNIT NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={groupForm.groupName} onChange={e => setGroupForm({groupName: (e.target as HTMLInputElement).value.toUpperCase()})} />
                <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all shadow-md">Commit Unit</button>
             </form>
           ) : (
-            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:''}); window.alert("Project record published."); }} className="space-y-4">
-               <input required placeholder="CM NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: e.target.value.toUpperCase()})} />
-               <input required placeholder="PROJECT TITLE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: e.target.value.toUpperCase()})} />
-               <textarea required placeholder="SCOPE..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner focus:border-emerald-200 transition-all" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: e.target.value})} />
+            <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "cds_projects", { ...projectForm, lga }); setProjectForm({cmName:'',stateCode:'',projectName:'',description:''}); (window as any).alert("Project record published."); }} className="space-y-4">
+               {/* Fix: Cast e.target to HTMLInputElement */}
+               <input required placeholder="CM NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={projectForm.cmName} onChange={e => setProjectForm({...projectForm, cmName: (e.target as HTMLInputElement).value.toUpperCase()})} />
+               <input required placeholder="PROJECT TITLE" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={projectForm.projectName} onChange={e => setProjectForm({...projectForm, projectName: (e.target as HTMLInputElement).value.toUpperCase()})} />
+               {/* Fix: Cast e.target to HTMLTextAreaElement */}
+               <textarea required placeholder="SCOPE..." className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl h-40 text-[13px] outline-none font-medium resize-none shadow-inner focus:border-emerald-200 transition-all" value={projectForm.description} onChange={e => setProjectForm({...projectForm, description: (e.target as HTMLTextAreaElement).value})} />
                <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all shadow-md">Publish Project</button>
             </form>
           )}
@@ -1253,11 +1304,13 @@ const SAEDModule = ({ entries, db, lga, userRole }: any) => {
       <div className="w-full lg:w-[350px] shrink-0 no-print">
         <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-[0.4em] mb-8 text-center">SKILL CENTER DIRECTORY</h3>
-          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',cmCount:0,fee:0}); window.alert("Hub committed to registry."); }} className="space-y-4">
-            <input required placeholder="CENTER NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.centerName} onChange={e => setFormData({...formData, centerName: e.target.value.toUpperCase()})} />
+          <form onSubmit={async (e) => { e.preventDefault(); await addData(db, "saed_centers", { ...formData, lga }); setFormData({centerName:'',cmCount:0,fee:0}); (window as any).alert("Hub committed to registry."); }} className="space-y-4">
+            {/* Fix: Cast e.target to HTMLInputElement */}
+            <input required placeholder="CENTER NAME" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-black uppercase outline-none focus:border-emerald-200 transition-all" value={formData.centerName} onChange={e => setFormData({...formData, centerName: (e.target as HTMLInputElement).value.toUpperCase()})} />
             <div className="grid grid-cols-2 gap-4">
-               <input type="number" placeholder="ENROLLED" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black outline-none focus:border-emerald-300 transition-all" value={formData.cmCount || ''} onChange={e => setFormData({...formData, cmCount: parseInt(e.target.value) || 0})} />
-               <input type="number" placeholder="FEE (₦)" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black text-emerald-600 outline-none focus:border-emerald-300 transition-all" value={formData.fee || ''} onChange={e => setFormData({...formData, fee: parseInt(e.target.value) || 0})} />
+               {/* Fix: Cast e.target to HTMLInputElement */}
+               <input type="number" placeholder="ENROLLED" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black outline-none focus:border-emerald-300 transition-all" value={formData.cmCount || ''} onChange={e => setFormData({...formData, cmCount: parseInt((e.target as HTMLInputElement).value) || 0})} />
+               <input type="number" placeholder="FEE (₦)" className="p-4 bg-white rounded-xl border border-slate-200 text-[14px] font-black text-emerald-600 outline-none focus:border-emerald-300 transition-all" value={formData.fee || ''} onChange={e => setFormData({...formData, fee: parseInt((e.target as HTMLInputElement).value) || 0})} />
             </div>
             <button className="w-full bg-[#004d40] text-white py-4 rounded-xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all shadow-xl">Commit Hub</button>
           </form>
